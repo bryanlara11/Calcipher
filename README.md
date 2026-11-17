@@ -34,11 +34,14 @@ The API is served on http://localhost:8000. The first boot downloads the RoBERTa
 cd backend
 py -3.12 -m venv .venv
 .venv/Scripts/python -m pip install -r requirements-dev.txt
-.venv/Scripts/python dev_db.py          # starts embedded Postgres 16 + pgvector, prints DATABASE_URL
+.venv/Scripts/python dev_db.py          # starts embedded Postgres 16 + pgvector, writes DATABASE_URL to .env
 ```
 
-Put the printed URL in `backend/.env` as `DATABASE_URL=...` (see `.env.example`). Add
-`EMBEDDER_BACKEND=hash` to skip the model download. Then:
+`dev_db.py` writes the database address into `backend/.env` (creating it if needed) every time it
+runs, because the embedded server can come back on a different port after a restart. It leaves a
+`DATABASE_URL` that points at another database, such as the Docker one, alone. Pass `--no-env` to
+only print the address, and stop the database with `dev_db.py --stop`. Add
+`EMBEDDER_BACKEND=hash` to `.env` to skip the model download (see `.env.example`). Then:
 
 ```bash
 .venv/Scripts/python -m app.db.seed

@@ -255,3 +255,7 @@ verify live Overpass from a normal network, add Alembic.
 **2026-11-17 — Opening splash**
 
 - `SplashScreen.jsx` shows an original two-tone flame mark (calorie "burn", not a copy of any existing character), "CalCipher" and "Decipher your food." on the ink background: content fades in, holds, then the screen fades out (~2.1 s). Shown once per browser tab via sessionStorage; tap to skip; a 2.6 s timer clears it if animations never run (background tab, animations disabled). Checked at desktop and 375×812; the frontend builds.
+
+**2026-11-17 — dev_db.py keeps .env in sync**
+
+- `python dev_db.py` now writes the embedded database's URL into `backend/.env` on every run (creating the file if missing), since the server can return on a new port after a restart. It only replaces a `DATABASE_URL` shaped like its own (`postgres@127.0.0.1|localhost:<port>/calcipher`); any other database URL is left untouched. `--no-env` prints only. The write is atomic and keeps other lines and line endings. Covered by `tests/test_dev_db.py`.
