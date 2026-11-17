@@ -1,5 +1,6 @@
 const SOURCE_TEXT = {
   live: "Google Places",
+  cache: "Recent Google Places result (no new call)",
 };
 
 function Row({ k, children }) {

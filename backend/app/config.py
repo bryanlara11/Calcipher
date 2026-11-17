@@ -30,6 +30,11 @@ class Settings(BaseSettings):
     auto_create_schema: bool = True
 
     google_places_api_key: SecretStr | None = None
+    # Reuse a Places response for the same area this long (0 disables). Keeps map/chat
+    # repeats from spending quota; see Google's Places caching terms before raising it.
+    places_cache_ttl_s: int = Field(300, ge=0, le=3600)
+    # Quota cooldown survives API restarts so a restart doesn't immediately re-hit Google.
+    places_state_path: Path = BACKEND_DIR / "data" / "places_cooldown.json"
 
     # Legacy offline fixtures
     overpass_enabled: bool = True

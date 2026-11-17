@@ -49,7 +49,10 @@ def build_rag_service(settings: Settings, brands: BrandRegistry) -> HybridRagSer
             )
         except Exception:  # missing package or bad key format: degrade to regex/template
             logger.exception("Gemini client unavailable; continuing without LLM")
-    discovery = GooglePlacesDiscovery(settings.google_places_api_key, brands.refresh_if_stale)
+    discovery = GooglePlacesDiscovery(
+        settings.google_places_api_key, brands.refresh_if_stale,
+        cache_ttl_s=settings.places_cache_ttl_s, state_path=settings.places_state_path,
+    )
     return HybridRagService(
         discovery=discovery,
         parser=QueryParser(llm),
@@ -151,7 +154,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def places_unavailable(request: Request, exc: PlacesUnavailable) -> JSONResponse:
         if isinstance(exc, PlacesQuotaLimited):
             return _error(429, str(exc), "places_quota", request, {"Retry-After": str(exc.seconds)})
-        return _error(503, str(exc), "places_unavailable", request)
+        headers = {"Retry-After": str(exc.seconds)} if exc.seconds else None
+        return _error(503, str(exc), "places_unavailable", request, headers)
 
     @app.exception_handler(Exception)
     async def unhandled_handler(request: Request, exc: Exception) -> JSONResponse:

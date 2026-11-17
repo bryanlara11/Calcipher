@@ -259,3 +259,7 @@ verify live Overpass from a normal network, add Alembic.
 **2026-11-17 — dev_db.py keeps .env in sync**
 
 - `python dev_db.py` now writes the embedded database's URL into `backend/.env` on every run (creating the file if missing), since the server can return on a new port after a restart. It only replaces a `DATABASE_URL` shaped like its own (`postgres@127.0.0.1|localhost:<port>/calcipher`); any other database URL is left untouched. `--no-env` prints only. The write is atomic and keeps other lines and line endings. Covered by `tests/test_dev_db.py`.
+
+**2026-11-17 — Places quota protection**
+
+- `GooglePlacesDiscovery` reuses responses for the same search for `PLACES_CACHE_TTL_S` (default 300 s; pin rounded to 4 decimals, results still distance-filtered from the exact pin), merges concurrent identical requests into one call, and fails fast during a cooldown. 429 without Retry-After backs off 60 s, doubling per consecutive 429 up to 30 min, reset on success; other HTTP errors pause 30 s. The cooldown persists in `backend/data/places_cooldown.json` (`PLACES_STATE_PATH`) so an API restart does not re-hit Google. The API sends Retry-After on 429/503; the frontend skips map requests until it passes and disables Retry meanwhile, with no automatic refetch when it ends. Tests count real calls (`tests/test_google_places.py`). Live check: six map requests during a quota block produced one Google call. Note: Google's Places terms restrict caching most content; keep the TTL short or set it to 0.

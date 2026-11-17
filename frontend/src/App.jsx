@@ -60,6 +60,16 @@ export default function App() {
   const [inspectorOpen, setInspectorOpen] = useState(false);
   const [geoError, setGeoError] = useState(null);
   const debounce = useRef();
+  // While Google Places is cooling down (429), skip map requests entirely. Nothing refetches
+  // automatically when it ends; the next pin move, radius change or Retry does.
+  const [quotaUntil, setQuotaUntil] = useState(0);
+  const quotaUntilRef = useRef(0);
+  quotaUntilRef.current = quotaUntil;
+  useEffect(() => {
+    if (!quotaUntil) return;
+    const t = setTimeout(() => setQuotaUntil(0), Math.max(0, quotaUntil - Date.now()));
+    return () => clearTimeout(t);
+  }, [quotaUntil]);
   const pins = useMemo(() => {
     const all = mapData?.branches ?? EMPTY;
     return verifiedOnly ? all.filter(pin => pin.has_calorie_data) : all;
@@ -70,6 +80,7 @@ export default function App() {
     const ctrl = new AbortController();
     clearTimeout(debounce.current);
     debounce.current = setTimeout(() => {
+      if (Date.now() < quotaUntilRef.current) return; // cooling down: don't even ask the backend
       mapItems({ ...location, radiusKm, viewport: searchViewport, includeUnmatched: true, signal: ctrl.signal })
         .then((d) => {
           setMapData(d);
@@ -77,6 +88,9 @@ export default function App() {
         })
         .catch((e) => {
           if (e.name === "AbortError") return;
+          if (e.retryAfter && (e.code === "places_quota" || e.code === "places_unavailable" || e.status === 429)) {
+            setQuotaUntil(Date.now() + e.retryAfter * 1000);
+          }
           setMapError(e.message);
           setMapErrorDismissed(false); // a new failure shows again even if the last one was closed
         });
@@ -231,7 +245,9 @@ export default function App() {
               <span className="num min-w-12">{formatRadius(previewMeters)}</span>
             </label>
             {(viewport !== searchViewport || mapError) && (
-              <button type="button" className="rounded px-2 py-1 text-sm font-semibold text-ube underline"
+              <button type="button" disabled={quotaUntil > 0}
+                title={quotaUntil > 0 ? "Google Places is cooling down; try again shortly" : undefined}
+                className="rounded px-2 py-1 text-sm font-semibold text-ube underline disabled:cursor-not-allowed disabled:opacity-40"
                 onClick={() => { setSearchViewport(viewport); setRetry(n => n + 1); setMapError(null); }}>
                 {viewport !== searchViewport ? "Search this area" : "Retry search"}
               </button>

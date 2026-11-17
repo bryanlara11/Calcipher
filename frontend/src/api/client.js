@@ -2,10 +2,11 @@
 const BASE = import.meta.env.VITE_API_BASE ?? "";
 
 export class ApiError extends Error {
-  constructor(status, detail, code) {
+  constructor(status, detail, code, retryAfter = null) {
     super(detail);
     this.status = status;
     this.code = code;
+    this.retryAfter = retryAfter; // seconds, from the Retry-After header when the API sends one
   }
 }
 
@@ -22,7 +23,9 @@ async function request(path, options = {}) {
   }
   const body = await res.json().catch(() => ({}));
   if (!res.ok) {
-    throw new ApiError(res.status, body.detail ?? `Request failed (${res.status})`, body.code ?? "http_error");
+    const retryAfter = Number.parseInt(res.headers.get("Retry-After") ?? "", 10);
+    throw new ApiError(res.status, body.detail ?? `Request failed (${res.status})`, body.code ?? "http_error",
+      Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : null);
   }
   return body;
 }
