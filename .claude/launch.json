@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "backend",
+      "runtimeExecutable": "C:/Users/Bryan/Desktop/Calcipher/backend/.venv/Scripts/python.exe",
+      "runtimeArgs": ["C:/Users/Bryan/Desktop/Calcipher/backend/run.py"],
+      "port": 8000
+    },
+    {
+      "name": "frontend",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--prefix", "C:/Users/Bryan/Desktop/Calcipher/frontend", "run", "dev"],
+      "port": 5173
+    }
+  ]
+}

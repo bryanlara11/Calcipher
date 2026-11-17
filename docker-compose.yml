@@ -1,0 +1,46 @@
+name: calcipher
+
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: calcipher
+      POSTGRES_PASSWORD: calcipher
+      POSTGRES_DB: calcipher
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./docker/initdb:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U calcipher -d calcipher"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file:
+      - path: ./backend/.env
+        required: false
+    environment:
+      DATABASE_URL: postgresql+psycopg://calcipher:calcipher@db:5432/calcipher
+      CORS_ORIGINS: '["http://localhost:5173","http://127.0.0.1:5173"]'
+      HF_HOME: /models
+    ports:
+      - "8000:8000"
+    volumes:
+      # Caches the ~330 MB RoBERTa model between container rebuilds.
+      - hf_models:/models
+    # Seeding is idempotent (upserts), so it is safe to run on every boot.
+    command: >
+      sh -c "python -m app.db.seed && uvicorn app.main:app --host 0.0.0.0 --port 8000"
+
+volumes:
+  pgdata:
+  hf_models:
