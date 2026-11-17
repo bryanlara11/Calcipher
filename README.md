@@ -1,10 +1,24 @@
 # CalCipher
 
 Hybrid RAG for Philippine restaurant calories: nutrition data from **@anongcaloriesnito** (OCR) is
-joined to real restaurant locations from the free **OpenStreetMap Overpass API**, filtered by hard
+joined to real restaurant locations from **Google Places API (New)**, filtered by hard
 SQL constraints (calories, protein, distance), and ranked with **pgvector**.
 
 Architecture, invariants and status: see [AGENTS.md](AGENTS.md).
+
+## Google Maps setup
+
+Enable billing, **Places API (New)** and **Maps JavaScript API** in your Google Cloud project.
+Set a Places-restricted server key in backend/.env as GOOGLE_PLACES_API_KEY.
+Set a separate Maps JavaScript key in frontend/.env as VITE_GOOGLE_MAPS_API_KEY.
+Restrict the browser key to your website referrers (for local Vite, http://localhost:5173/*).
+Restart the API and Vite after editing their environment files.
+
+The map keeps restaurants with at least five Google ratings within the pin radius. Each map search uses one Google Nearby Search (up to 20 listings before filtering). After panning or zooming, choose **Search this area** to search the visible neighborhood. Brand searches use
+Google Text Search near the pin, then enforce the requested distance in SQL. Google Place IDs
+identify branches. Results are joined to the nutrition catalog per request. Existing OSM
+and demo branch rows do not participate in production searches. Google bills searches and
+map loads separately. See the [pricing list](https://developers.google.com/maps/billing-and-pricing/pricing).
 
 ## Run with Docker
 

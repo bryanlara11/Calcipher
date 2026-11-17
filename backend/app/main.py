@@ -32,7 +32,7 @@ from app.services.embedder import get_embedder
 from app.services.generator import GroundedGenerator
 from app.services.hybrid_rag import HybridRagService, brand_items
 from app.services.llm import GeminiClient, LLMClient
-from app.services.overpass_client import BranchDiscoveryService, OverpassClient
+from app.services.google_places import GooglePlacesDiscovery, PlacesQuotaLimited, PlacesUnavailable
 from app.services.query_parser import QueryParser
 
 logger = logging.getLogger("calcipher")
@@ -49,17 +49,7 @@ def build_rag_service(settings: Settings, brands: BrandRegistry) -> HybridRagSer
             )
         except Exception:  # missing package or bad key format: degrade to regex/template
             logger.exception("Gemini client unavailable; continuing without LLM")
-    client = OverpassClient(
-        settings.overpass_urls, user_agent=settings.overpass_user_agent, timeout_s=settings.overpass_timeout_s
-    )
-    discovery = BranchDiscoveryService(
-        client,
-        brands.refresh,
-        ttl_hours=settings.overpass_cache_ttl_hours,
-        max_radius_m=settings.overpass_max_radius_m,
-        enabled=settings.overpass_enabled,
-        failure_cooldown_s=settings.overpass_failure_cooldown_s,
-    )
+    discovery = GooglePlacesDiscovery(settings.google_places_api_key, brands.refresh_if_stale)
     return HybridRagService(
         discovery=discovery,
         parser=QueryParser(llm),
@@ -86,8 +76,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             stale, app.state.rag.embedder.name,
         )
     logger.info(
-        "CalCipher ready: %d brands, embedder=%s, llm=%s, overpass=%s",
-        len(brands.matcher), app.state.rag.embedder.name, settings.llm_enabled, settings.overpass_enabled,
+        "CalCipher ready: %d brands, embedder=%s, llm=%s, google_places_configured=%s",
+        len(brands.matcher), app.state.rag.embedder.name, settings.llm_enabled, bool(settings.google_places_api_key),
     )
     try:
         yield
@@ -157,6 +147,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         loc = ".".join(str(p) for p in first.get("loc", ()) if p != "body")
         return _error(422, f"Invalid request: {loc} {first.get('msg', '')}".strip(), "validation_error", request)
 
+    @app.exception_handler(PlacesUnavailable)
+    async def places_unavailable(request: Request, exc: PlacesUnavailable) -> JSONResponse:
+        if isinstance(exc, PlacesQuotaLimited):
+            return _error(429, str(exc), "places_quota", request, {"Retry-After": str(exc.seconds)})
+        return _error(503, str(exc), "places_unavailable", request)
+
     @app.exception_handler(Exception)
     async def unhandled_handler(request: Request, exc: Exception) -> JSONResponse:
         logger.exception("Unhandled error (request_id=%s)", getattr(request.state, "request_id", None))
@@ -181,7 +177,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "stale_embeddings": stale,
             "brands": len(rag.brands.matcher) if rag else 0,
             "llm_enabled": settings.llm_enabled,
-            "overpass_enabled": settings.overpass_enabled,
+            "google_places_configured": bool(settings.google_places_api_key),
         }
 
     @app.post("/api/v1/chat", response_model=ChatResponse)
@@ -203,9 +199,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         lng: Annotated[float, Query(ge=PH_LNG_MIN, le=PH_LNG_MAX)],
         radius_km: Annotated[float, Query(gt=0, le=MAX_DISTANCE_KM)] = 2.0,
         include_unmatched: bool = True,
+        viewport: Annotated[list[float] | None, Query(min_length=4, max_length=4)] = None,
     ) -> MapItemsResponse:
+        if viewport is not None:
+            south, north, west, east = viewport
+            if not (-90 <= south < north <= 90 and -180 <= west < east <= 180):
+                raise HTTPException(422, "Invalid map viewport")
         pins, discovery = await rag.map_items(
-            session, lat=lat, lng=lng, radius_km=radius_km, include_unmatched=include_unmatched
+            session, lat=lat, lng=lng, radius_km=radius_km, include_unmatched=include_unmatched, viewport=viewport,
         )
         matched = sum(1 for p in pins if p.has_calorie_data)
         return MapItemsResponse(

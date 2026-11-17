@@ -21,16 +21,6 @@
   .rule-thin { border-top: 1px solid #18202B; }
 }
 
-/* Leaflet: keep popups in the house style. */
-.leaflet-popup-content-wrapper { border-radius: 4px; box-shadow: 0 2px 10px rgba(24, 32, 43, 0.25); }
-.leaflet-popup-content { margin: 12px 14px; font-family: "Archivo", system-ui, sans-serif; }
-.leaflet-container { font-family: "Archivo", system-ui, sans-serif; background: #E6EAEE; }
-
-.pin-result {
-  display: grid; place-items: center; width: 26px; height: 26px; border-radius: 50% 50% 50% 0;
-  transform: rotate(-45deg); background: #F2A900; border: 2px solid #18202B;
-}
-.pin-result span { transform: rotate(45deg); font-weight: 900; font-size: 12px; color: #18202B; }
 .pin-you {
   width: 18px; height: 18px; border-radius: 50%; background: #F2A900;
   border: 3px solid #18202B; box-shadow: 0 0 0 6px rgba(242, 169, 0, 0.35);

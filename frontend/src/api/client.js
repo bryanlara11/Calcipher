@@ -16,7 +16,8 @@ async function request(path, options = {}) {
       headers: { "Content-Type": "application/json" },
       ...options,
     });
-  } catch {
+  } catch (error) {
+    if (error.name === "AbortError") throw error;
     throw new ApiError(0, "Can't reach the CalCipher API. Check that the backend is running on port 8000.", "network");
   }
   const body = await res.json().catch(() => ({}));
@@ -34,13 +35,14 @@ export function chat({ message, lat, lng, radiusKm, signal }) {
   });
 }
 
-export function mapItems({ lat, lng, radiusKm, includeUnmatched, signal }) {
+export function mapItems({ lat, lng, radiusKm, viewport, includeUnmatched, signal }) {
   const params = new URLSearchParams({
     lat: lat.toFixed(6),
     lng: lng.toFixed(6),
     radius_km: String(radiusKm),
     include_unmatched: String(includeUnmatched),
   });
+  if (viewport) viewport.split(",").forEach(value => params.append("viewport", value));
   return request(`/api/v1/map-items?${params}`, { signal });
 }
 

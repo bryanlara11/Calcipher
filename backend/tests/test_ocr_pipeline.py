@@ -55,6 +55,19 @@ def test_item_name_on_previous_line(matcher):
     assert [(i.food_item, i.calories, i.protein_g) for i in items] == [("Chicken Inasal Paa with Rice", 620, 34.0)]
 
 
+def test_mcdonalds_kiosk_labels():
+    from app.services.brand_matcher import BrandMatcher
+    from app.services.ingestion_ocr import KNOWN_BRAND_NAMES
+
+    text = ("1-pc. Sweet BBQ Glazed Chicken\nMcDo\nPHP111.00 526 kcal\n"
+            "Extra Sweet BBQ Glaze\nSauce\n+PHP16.00 32 kcal")
+    items = parse_nutrition_text("New menu items from McDonald's", text, BrandMatcher(KNOWN_BRAND_NAMES))
+    assert [(i.food_item, i.calories) for i in items] == [
+        ("1-pc. Sweet BBQ Glazed Chicken McDo", 526),
+        ("Extra Sweet BBQ Glaze Sauce", 32),
+    ]
+
+
 def test_ocr_digit_confusions_are_repaired(matcher):
     assert fix_ocr_digits("5O0 kcal") == "500 kcal"
     assert fix_ocr_digits("Protein l2g") == "Protein 12g"

@@ -29,7 +29,9 @@ class Settings(BaseSettings):
     db_max_overflow: int = Field(5, ge=0, le=50)
     auto_create_schema: bool = True
 
-    # --- OpenStreetMap Overpass ---
+    google_places_api_key: SecretStr | None = None
+
+    # Legacy offline fixtures
     overpass_enabled: bool = True
     overpass_urls: list[str] = Field(default_factory=lambda: list(DEFAULT_OVERPASS_URLS), min_length=1)
     overpass_user_agent: str = Field("CalCipher-UPM-Academic-Project/1.0", min_length=8)
@@ -46,7 +48,7 @@ class Settings(BaseSettings):
     # Turn these off once real @anongcaloriesnito data is loaded; the docker image runs the
     # seed script on every boot.
     seed_demo_items: bool = True
-    seed_demo_branches: bool = True
+    seed_demo_branches: bool = False
 
     # --- OCR ingestion ---
     tesseract_cmd: str | None = None  # auto-detected from PATH / default install dirs if unset
@@ -72,7 +74,7 @@ class Settings(BaseSettings):
                 raise ValueError(f"Overpass URL must use https: {url!r}")
         return urls
 
-    @field_validator("gemini_api_key", mode="before")
+    @field_validator("gemini_api_key", "google_places_api_key", mode="before")
     @classmethod
     def _empty_key_is_none(cls, value: object) -> object:
         return None if value in ("", None) else value

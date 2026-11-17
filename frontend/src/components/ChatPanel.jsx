@@ -52,6 +52,15 @@ function NutritionPanel({ item, index, onLocate }) {
         </button>
         <span className="num shrink-0 type-cond font-bold">{item.distance_km.toFixed(2)} km</span>
       </div>
+      {item.place_id && (
+        <p className="mt-1 text-xs text-slate-mute">
+          <a className="underline" target="_blank" rel="noreferrer"
+            href={`https://www.google.com/maps/search/?${new URLSearchParams({
+              api: "1", query: item.poi_name, query_place_id: item.place_id,
+            })}`}>View branch on Google Maps</a>
+          {item.attributions?.map(a => <span key={a.provider}> · {a.provider}</span>)}
+        </p>
+      )}
       {!item.is_verified && (
         <p className="mt-1 text-xs text-slate-mute">Community estimate, not yet verified.</p>
       )}

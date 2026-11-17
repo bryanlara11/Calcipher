@@ -231,6 +231,8 @@ class DiscoveryResult:
     purged_seed_rows: int = 0
     error: str | None = None
     elapsed_ms: float = 0.0
+    # None selects the legacy database source. An empty live result stays empty.
+    places: list[dict[str, Any]] | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return {

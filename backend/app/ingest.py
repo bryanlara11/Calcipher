@@ -159,33 +159,37 @@ def scrape_posts(
     raw_dir.mkdir(parents=True, exist_ok=True)
     known = known_shortcodes(raw_dir)
     summary = ScrapeSummary()
-    for post in posts:
-        if summary.new_posts >= max_new:
-            break
-        if post.shortcode in known:
-            summary.skipped_known += 1
-            continue
-        try:
-            download(post)
-        except fatal as exc:
-            summary.stopped_early = f"{exc.__class__.__name__}: {exc}"
-            break
-        except Exception as exc:
-            logger.warning("download failed for %s: %s", post.shortcode, exc)
-            summary.failed.append(post.shortcode)
-            continue
-        PostMeta(
-            shortcode=post.shortcode,
-            url=f"https://www.instagram.com/p/{post.shortcode}/",
-            profile=profile,
-            date_utc=post.date_utc.isoformat() if post.date_utc else None,
-            caption=post.caption or "",
-            images=post_images(raw_dir, post.shortcode),
-            is_video=bool(post.is_video),
-        ).save(raw_dir)
-        summary.new_posts += 1
-        logger.info("scraped %s (%d new)", post.shortcode, summary.new_posts)
-        sleeper(sleep_s + random.uniform(0, sleep_s / 2))  # polite pacing with jitter
+    if max_new <= 0:
+        return summary
+    try:
+        for post in posts:
+            if post.shortcode in known:
+                summary.skipped_known += 1
+                continue
+            try:
+                download(post)
+            except fatal:
+                raise
+            except Exception as exc:
+                logger.warning("download failed for %s: %s", post.shortcode, exc)
+                summary.failed.append(post.shortcode)
+                continue
+            PostMeta(
+                shortcode=post.shortcode,
+                url=f"https://www.instagram.com/p/{post.shortcode}/",
+                profile=profile,
+                date_utc=post.date_utc.isoformat() if post.date_utc else None,
+                caption=post.caption or "",
+                images=post_images(raw_dir, post.shortcode),
+                is_video=bool(post.is_video),
+            ).save(raw_dir)
+            summary.new_posts += 1
+            logger.info("scraped %s (%d new)", post.shortcode, summary.new_posts)
+            if summary.new_posts >= max_new:
+                break
+            sleeper(sleep_s + random.uniform(0, sleep_s / 2))  # polite pacing with jitter
+    except fatal as exc:
+        summary.stopped_early = f"{type(exc).__name__}: {exc}"
     return summary
 
 
@@ -204,20 +208,25 @@ def scrape(dirs: DataDirs, *, profile: str, max_new: int, login: str | None, sle
         compress_json=False,
         post_metadata_txt_pattern="",
         quiet=True,
+        fatal_status_codes=[401, 429],
         max_connection_attempts=3,
         request_timeout=30.0,
     )
     if login:
         loader.load_session_from_file(login)
-    prof = instaloader.Profile.from_username(loader.context, profile)
+
+    def posts():
+        prof = instaloader.Profile.from_username(loader.context, profile)
+        yield from prof.get_posts()
+
     return scrape_posts(
-        prof.get_posts(),
+        posts(),
         lambda post: loader.download_post(post, target=profile),
         dirs.raw,
         profile=profile,
         max_new=max_new,
         sleep_s=sleep_s,
-        fatal=(ie.TooManyRequestsException, ie.LoginRequiredException, ie.ConnectionException),
+        fatal=(ie.AbortDownloadException, ie.TooManyRequestsException, ie.LoginRequiredException, ie.ConnectionException),
     )
 
 
@@ -617,8 +626,8 @@ def main(argv: Sequence[str] | None = None) -> None:
         summary = scrape(dirs, profile=args.profile, max_new=args.max_new, login=args.login, sleep_s=args.sleep)
         _print(summary)
         if summary.stopped_early:
-            print("Stopped early (rate limit or login). Wait a while, log in with "
-                  "`instaloader --login <user>`, then re-run: finished posts are skipped.")
+            raise SystemExit("Scrape stopped. Follow any Instagram prompt, then retry later. "
+                             "Completed posts will be skipped.")
     elif args.stage == "ocr":
         from app.services.ingestion_ocr import ocr_image, tesseract_engine_id
 

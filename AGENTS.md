@@ -14,12 +14,10 @@ solves nutritional opacity when eating out in the Philippines.
 - Nutrition data is scraped from **`@anongcaloriesnito`** on Instagram with `instaloader` +
   `pytesseract` OCR. Posts contain **brand/chain names, food item names, serving sizes, calories
   and macros**, but **NO geographic coordinates or branch addresses**.
-- Physical locations (`latitude`, `longitude`) come dynamically from the free **OpenStreetMap
-  Overpass API** (`nwr["amenity"~"restaurant|fast_food|cafe"](around:radius,lat,lng); out center;`)
-  and are rendered on a **React-Leaflet** map with OSM tiles. No paid map keys anywhere.
-- The two datasets are linked by the **Brand-to-Branch Entity Resolution & Spatial Join**
-  pipeline: OSM POI names/brand tags (e.g. `"Andok's - Pedro Gil"`) are normalized and matched to
-  `nutrition_catalog.brand_slug` (e.g. `"andoks"`).
+- Production locations come from Google Places API (New) and display on Google Maps. Live
+  listings join to the catalog by matched brand slug using a request-scoped SQL recordset.
+  Seed branches, Overpass tables and their tests below describe the legacy offline fixtures.
+  Google discovery supersedes the Overpass/cache and Leaflet requirements throughout this contract.
 
 ## 2. Repository Structure
 
@@ -207,3 +205,49 @@ _(updated at the end of every completed task)_
 **Suggested next steps**: pilot the ingestion CLI on real posts, then switch to the RoBERTa
 embedder + `python -m app.ingest reembed`, set `SEED_DEMO_ITEMS=false` + `--purge-demo-items`,
 verify live Overpass from a normal network, add Alembic.
+
+**2026-11-17 — Instagram scrape interruption handling**
+
+- The scraper stops on a 401 or 429 during post listing and reports how many posts finished. Completed posts are skipped on a later run. A regression test covers Instagram refusing the initial post listing.
+
+**2026-11-17 — first real menu-slide OCR pilot**
+
+- Ran OCR and parse on the menu portion of a user-supplied screenshot of 24 Chicken, slide 2. Tesseract recovered some flavor names but missed the small per-serving numbers. Parse produced zero items and a skipped placeholder. A higher-resolution source is still needed to assess calorie extraction.
+
+**2026-11-17 — McDonald's carousel OCR pilot**
+
+- Four manually cropped kiosk labels produced zero parsed items. OCR read the chicken and sauce calorie lines correctly, recovered the Ube dessert number with a corrupted unit, and missed the Choco Pinipig value. A separate unverified transcription is available under backend/data/pilot-mcdonalds/review/transcribed.csv for human review.
+
+**2026-11-17 — McDonald's kiosk parsing**
+
+- Added McDonald's to the OCR brand list and handled PHP prices and wrapped kiosk item names. Re-parsing the cached pilot recovered the chicken (526 kcal) and sauce (32 kcal). The two dessert labels still need human review.
+
+**2026-11-17 — Google Maps restaurant discovery**
+
+- Map and chat use live Places listings, with no branch seeding requirement. A server Places key and a restricted Maps JavaScript browser key are needed for live verification.
+- Verified with mocked Places responses, embedded PostgreSQL and the frontend production build. All 202 backend tests passed.
+- Live pilot verified with a Maps Demo Key. The browser displayed Google restaurant markers, and the under-600-kcal chat search returned three catalog items for the Google listing at UN–Taft.
+
+**2026-11-17 — Restaurant-only map**
+
+- Nearby and brand searches filter restaurant types. The Google base map hides place and station labels, and restaurant markers use larger circles with numbered search results.
+
+**2026-11-17 — Five-review minimum**
+
+- Map and brand searches request Google Places userRatingCount and exclude restaurants with fewer than five ratings or no reported count before brand matching. All four provider tests passed. The live UN Avenue map returned eight qualifying listings.
+
+**2026-11-17 — Radius coverage in dense areas**
+
+- Saturated map searches sample the visible portion of the selected radius, merging Google Place IDs and enforcing distance from the original pin. Live 5 km verification from UP Manila returned 66 restaurants including the UN–Taft McDonald’s and Popeyes.
+
+**2026-11-17 — Google Places quota handling**
+
+- Each map search now requests a single result set for the visible area. Panning and zooming expose Search this area. The API shares a Places 429 cooldown between map and chat and returns Retry-After. This supersedes the nine-cell map expansion. The frontend built and 29 provider/retrieval tests passed. Google still returned 429 during live verification.
+
+**2026-11-17 — Radius slider**
+
+- The map starts at 100 m and supports 100 m increments through 5 km. Dragging previews the radius and releasing applies the selection to discovery and chat.
+
+**2026-11-17 — Mobile map-first layout**
+
+- Chat starts hidden behind a Chat button at the top right of the map; its panel and the retrieval inspector each have a close button, and the inspector can be reopened from the chat header. While chat is closed the map fills the screen with only the controls bar and legend. Map error notices can be dismissed and reappear on the next failure. Google's fullscreen control is off so it doesn't sit under the Chat button. Checked at 375×812 and desktop width; the frontend builds.

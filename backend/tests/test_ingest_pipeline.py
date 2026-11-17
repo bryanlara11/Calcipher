@@ -119,6 +119,20 @@ def test_scrape_stops_on_rate_limit(dirs):
     assert summary.stopped_early.startswith("TooMany") and summary.new_posts == 0
 
 
+def test_scrape_stops_when_instagram_refuses_post_listing(dirs, monkeypatch):
+    import instaloader
+    from app.ingest import scrape
+
+    class BlockedProfile:
+        def get_posts(self):
+            raise instaloader.exceptions.AbortDownloadException("401 Please wait a few minutes")
+
+    monkeypatch.setattr(instaloader.Profile, "from_username", lambda context, profile: BlockedProfile())
+    result = scrape(dirs, profile="anongcaloriesnito", login=None, max_new=15, sleep_s=0)
+    assert result.new_posts == 0
+    assert "401 Please wait" in result.stopped_early
+
+
 # ---------------------------------------------------------------------------
 # Stage 2: OCR cache
 # ---------------------------------------------------------------------------

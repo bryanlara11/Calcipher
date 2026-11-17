@@ -1,8 +1,5 @@
 const SOURCE_TEXT = {
-  live: "Fetched live from Overpass",
-  cache: "Served from the 24 h cache",
-  stale_cache_fallback: "Overpass failed, used cached branches",
-  disabled: "Overpass disabled, cache only",
+  live: "Google Places",
 };
 
 function Row({ k, children }) {
@@ -56,7 +53,7 @@ function Timings({ timings }) {
   );
 }
 
-export default function RagInspector({ open, onToggle, chat, map }) {
+export default function RagInspector({ open, onToggle, onClose, chat, map }) {
   const insp = chat?.inspector;
   const c = insp?.constraints;
   return (
@@ -66,18 +63,31 @@ export default function RagInspector({ open, onToggle, chat, map }) {
       }`}
       aria-label="Retrieval inspector"
     >
-      <button
-        type="button"
-        onClick={onToggle}
-        aria-expanded={open}
-        className="flex h-11 w-full items-center justify-between px-4 text-left font-bold"
-      >
-        <span>Retrieval inspector</span>
-        <span className="text-sm font-normal text-slate-mute">
-          {insp ? `${insp.candidate_count} candidates, ${insp.timings_ms.total?.toFixed(0)} ms` : "No search yet"}
-          <span aria-hidden="true" className="ml-2 inline-block">{open ? "▾" : "▴"}</span>
-        </span>
-      </button>
+      <div className="flex h-11 items-center pr-2">
+        <button
+          type="button"
+          onClick={onToggle}
+          aria-expanded={open}
+          className="flex h-full min-w-0 flex-1 items-center justify-between gap-2 px-4 text-left font-bold"
+        >
+          <span className="truncate">Retrieval inspector</span>
+          <span className="shrink-0 text-sm font-normal text-slate-mute">
+            {insp ? `${insp.candidate_count} candidates, ${insp.timings_ms.total?.toFixed(0)} ms` : "No search yet"}
+            <span aria-hidden="true" className="ml-2 inline-block">{open ? "▾" : "▴"}</span>
+          </span>
+        </button>
+        {onClose && (
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close retrieval inspector"
+            title="Close retrieval inspector"
+            className="grid h-7 w-7 shrink-0 place-items-center rounded text-lg leading-none hover:bg-slate-map"
+          >
+            <span aria-hidden="true">×</span>
+          </button>
+        )}
+      </div>
 
       <div className="grid max-h-[26vh] gap-5 lg:max-h-[45vh] overflow-y-auto px-4 pb-4 sm:grid-cols-2 lg:grid-cols-3">
         {map && <Discovery d={map.discovery} title={`Map layer (${map.matched_count} with data, ${map.unmatched_count} without)`} />}

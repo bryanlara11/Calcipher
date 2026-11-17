@@ -56,8 +56,10 @@ class RetrievedItem(BaseModel):
     serving_size: str
     is_verified: bool
     source_post_url: str | None
-    osm_type: str
-    osm_id: int
+    place_id: str | None = None
+    attributions: list[dict[str, str]] = Field(default_factory=list)
+    osm_type: str | None = None
+    osm_id: int | None = None
     poi_name: str
     amenity_type: str | None
     latitude: float
@@ -111,8 +113,10 @@ class ChatResponse(BaseModel):
 
 
 class BranchPin(BaseModel):
-    osm_type: str
-    osm_id: int
+    place_id: str | None = None
+    attributions: list[dict[str, str]] = Field(default_factory=list)
+    osm_type: str | None = None
+    osm_id: int | None = None
     poi_name: str
     amenity_type: str | None
     latitude: float

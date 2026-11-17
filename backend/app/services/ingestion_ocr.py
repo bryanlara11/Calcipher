@@ -65,6 +65,7 @@ def build_context_string(
 # ---------------------------------------------------------------------------
 
 _NUM = r"(\d{1,5}(?:[.,]\d{1,2})?)"
+_PRICE = re.compile(r"\+?(?:\bPHP|₱)\s*\d[\d,]*(?:\.\d{2})?", re.I)
 # Digits OCR often confuses with letters, only when glued to a nutrition unit.
 _OCR_DIGIT_TOKEN = re.compile(r"(?<![A-Za-z0-9])([0-9OoIlS]{2,5})(?=\s*(?:k?cal|calories|g\b))")
 _OCR_DIGIT_MAP = str.maketrans({"O": "0", "o": "0", "I": "1", "l": "1", "S": "5"})
@@ -192,6 +193,7 @@ KNOWN_BRAND_NAMES: dict[str, str] = {
     "andoks": "Andok's",
     "24 chicken": "24 Chicken",
     "mang inasal": "Mang Inasal",
+    "mcdonalds": "McDonald's",
     "jollibee": "Jollibee",
     "chowking": "Chowking",
     "kenny rogers roasters": "Kenny Rogers Roasters",
@@ -220,7 +222,10 @@ _CONTINUATION = re.compile(r"^(?:with|without|w/o|w/|and|plus|no|sans)\b", re.I)
 
 def _is_name_continuation(line: str) -> bool:
     """A wrapped second line of an item name: starts lowercase or with a connector word."""
-    return bool(line) and (line[0].islower() or line[0] in "(&+" or bool(_CONTINUATION.match(line)))
+    return bool(line) and (
+        line[0].islower() or line[0] in "(&+" or bool(_CONTINUATION.match(line))
+        or line in {"McDo", "Sauce"}
+    )
 
 
 def _looks_like_item_name(line: str) -> bool:
@@ -259,7 +264,7 @@ def parse_nutrition_text(
     last_name: str | None = None
     prev_was_name = False  # was the previous non-blank line part of an item name?
     for raw_line in text.splitlines():
-        line = raw_line.strip()
+        line = _PRICE.sub(" ", raw_line).strip()
         if not line:
             continue
         cal = _first(_CAL_PATTERNS, line)

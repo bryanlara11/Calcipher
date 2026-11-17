@@ -7,6 +7,7 @@ except as the *value* of a bound parameter (and the semantic query only as an em
 from __future__ import annotations
 
 import asyncio
+import json
 import math
 import time
 import uuid
@@ -33,6 +34,7 @@ from app.services.brand_matcher import BrandRegistry
 from app.services.embedder import Embedder, to_pgvector_literal
 from app.services.generator import GroundedGenerator
 from app.services.overpass_client import EARTH_RADIUS_KM, BranchDiscoveryService, DiscoveryResult, bounding_box
+from app.services.google_places import GooglePlacesDiscovery
 from app.services.query_parser import QueryParser
 
 TOP_K = 5
@@ -49,13 +51,19 @@ _HAVERSINE_KM = f"""(
     )))
 )"""
 
-RETRIEVAL_SQL = text(
+_PLACES_FROM = """jsonb_to_recordset(CAST(:places AS jsonb)) AS b(
+    place_id text, attributions jsonb, osm_type text, osm_id bigint, poi_name text, matched_brand_slug text,
+    amenity_type text, latitude double precision, longitude double precision, address_hint text
+)"""
+_LEGACY_FROM = "(SELECT *, NULL::text AS place_id, NULL::jsonb AS attributions FROM osm_branch_cache) AS b"
+
+_RETRIEVAL_QUERY = (
     f"""
 WITH nearby AS (
-    SELECT b.osm_type, b.osm_id, b.poi_name, b.matched_brand_slug, b.amenity_type,
+    SELECT b.place_id, b.attributions, b.osm_type, b.osm_id, b.poi_name, b.matched_brand_slug, b.amenity_type,
            b.latitude, b.longitude, b.address_hint,
            {_HAVERSINE_KM} AS distance_km
-    FROM osm_branch_cache AS b
+    FROM {{branches}}
     WHERE b.matched_brand_slug IS NOT NULL
       AND b.latitude BETWEEN :min_lat AND :max_lat
       AND b.longitude BETWEEN :min_lng AND :max_lng
@@ -64,7 +72,7 @@ candidates AS (
     SELECT DISTINCT ON (n.id)
            n.id AS item_id, n.brand_name, n.brand_slug, n.food_item, n.calories,
            n.protein_g, n.carbs_g, n.fat_g, n.serving_size, n.is_verified, n.source_post_url,
-           nb.osm_type, nb.osm_id, nb.poi_name, nb.amenity_type, nb.latitude, nb.longitude,
+           nb.place_id, nb.attributions, nb.osm_type, nb.osm_id, nb.poi_name, nb.amenity_type, nb.latitude, nb.longitude,
            nb.address_hint, nb.distance_km,
            (n.embedding <=> CAST(:query_vec AS vector)) AS cosine_distance
     FROM nutrition_catalog AS n
@@ -82,13 +90,13 @@ LIMIT :k
 """
 )
 
-MAP_ITEMS_SQL = text(
+_MAP_QUERY = (
     f"""
 WITH nearby AS (
-    SELECT b.osm_type, b.osm_id, b.poi_name, b.matched_brand_slug, b.amenity_type,
+    SELECT b.place_id, b.attributions, b.osm_type, b.osm_id, b.poi_name, b.matched_brand_slug, b.amenity_type,
            b.latitude, b.longitude, b.address_hint,
            {_HAVERSINE_KM} AS distance_km
-    FROM osm_branch_cache AS b
+    FROM {{branches}}
     WHERE b.latitude BETWEEN :min_lat AND :max_lat
       AND b.longitude BETWEEN :min_lng AND :max_lng
 ),
@@ -108,6 +116,11 @@ ORDER BY nb.distance_km ASC
 LIMIT :limit
 """
 )
+
+RETRIEVAL_SQL = text(_RETRIEVAL_QUERY.format(branches=_LEGACY_FROM))
+MAP_ITEMS_SQL = text(_MAP_QUERY.format(branches=_LEGACY_FROM))
+PLACES_RETRIEVAL_SQL = text(_RETRIEVAL_QUERY.format(branches=_PLACES_FROM))
+PLACES_MAP_SQL = text(_MAP_QUERY.format(branches=_PLACES_FROM))
 
 BRAND_ITEMS_SQL = text(
     """
@@ -138,6 +151,7 @@ async def retrieve(
     lng: float,
     constraints: SearchConstraints,
     query_vec: Sequence[float],
+    places: list[dict] | None = None,
     k: int = TOP_K,
 ) -> RetrievalResult:
     min_lat, max_lat, min_lng, max_lng = bounding_box(lat, lng, constraints.max_distance_km)
@@ -155,7 +169,11 @@ async def retrieve(
         "query_vec": to_pgvector_literal(list(query_vec)),
         "k": k,
     }
-    rows = (await session.execute(RETRIEVAL_SQL, params)).mappings().all()
+    query = RETRIEVAL_SQL
+    if places is not None:
+        query = PLACES_RETRIEVAL_SQL
+        params["places"] = json.dumps(places)
+    rows = (await session.execute(query, params)).mappings().all()
     items = [
         RetrievedItem(
             item_id=str(r["item_id"]),
@@ -169,6 +187,8 @@ async def retrieve(
             serving_size=r["serving_size"],
             is_verified=r["is_verified"],
             source_post_url=r["source_post_url"],
+            place_id=r["place_id"],
+            attributions=r["attributions"] or [],
             osm_type=r["osm_type"],
             osm_id=r["osm_id"],
             poi_name=r["poi_name"],
@@ -185,12 +205,13 @@ async def retrieve(
 
 
 async def nearby_branches(
-    session: AsyncSession, *, lat: float, lng: float, radius_km: float, include_unmatched: bool
+    session: AsyncSession, *, lat: float, lng: float, radius_km: float, include_unmatched: bool,
+    places: list[dict] | None = None,
 ) -> list[BranchPin]:
     min_lat, max_lat, min_lng, max_lng = bounding_box(lat, lng, radius_km)
     rows = (
         await session.execute(
-            MAP_ITEMS_SQL,
+            PLACES_MAP_SQL if places is not None else MAP_ITEMS_SQL,
             {
                 "user_lat": lat,
                 "user_lng": lng,
@@ -201,11 +222,14 @@ async def nearby_branches(
                 "radius_km": radius_km,
                 "include_unmatched": include_unmatched,
                 "limit": MAP_PIN_LIMIT,
+                "places": json.dumps(places),
             },
         )
     ).mappings().all()
     return [
         BranchPin(
+            place_id=r["place_id"],
+            attributions=r["attributions"] or [],
             osm_type=r["osm_type"],
             osm_id=r["osm_id"],
             poi_name=r["poi_name"],
@@ -275,7 +299,7 @@ class HybridRagService:
     def __init__(
         self,
         *,
-        discovery: BranchDiscoveryService,
+        discovery: BranchDiscoveryService | GooglePlacesDiscovery,
         parser: QueryParser,
         embedder: Embedder,
         generator: GroundedGenerator,
@@ -315,8 +339,9 @@ class HybridRagService:
         t = lap("parse", t0)
 
         # Stage 1: discovery (Overpass or cache).
-        discoveries = [await self.discovery.ensure_branches(session, lat, lng, constraints.max_distance_km)]
-        if discoveries[0].source == "live":
+        brand_filter = {"brand": constraints.target_brand} if isinstance(self.discovery, GooglePlacesDiscovery) else {}
+        discoveries = [await self.discovery.ensure_branches(session, lat, lng, constraints.max_distance_km, **brand_filter)]
+        if discoveries[0].source == "live" and discoveries[0].places is None:
             await self.brands.refresh(session)
         else:
             await self.brands.refresh_if_stale(session)
@@ -326,7 +351,8 @@ class HybridRagService:
         semantic = constraints.semantic_query or DEFAULT_SEMANTIC_QUERY
         query_vec = await asyncio.to_thread(self.embedder.embed_one, semantic)
         t = lap("embed", t)
-        result = await retrieve(session, lat=lat, lng=lng, constraints=constraints, query_vec=query_vec)
+        result = await retrieve(session, lat=lat, lng=lng, constraints=constraints, query_vec=query_vec,
+                                places=discoveries[0].places)
         attempts = 1
         relaxation = RelaxationInfo()
         final = constraints
@@ -336,11 +362,12 @@ class HybridRagService:
             for note, relaxed in relaxation_ladder(constraints):
                 if relaxed.max_distance_km > constraints.max_distance_km and len(discoveries) == 1:
                     discoveries.append(
-                        await self.discovery.ensure_branches(session, lat, lng, relaxed.max_distance_km)
+                        await self.discovery.ensure_branches(session, lat, lng, relaxed.max_distance_km, **brand_filter)
                     )
                 attempts += 1
                 relaxation.steps.append(note)
-                candidate = await retrieve(session, lat=lat, lng=lng, constraints=relaxed, query_vec=query_vec)
+                candidate = await retrieve(session, lat=lat, lng=lng, constraints=relaxed, query_vec=query_vec,
+                                           places=discoveries[-1].places)
                 if candidate.items:
                     result, final = candidate, relaxed
                     relaxation.applied = True
@@ -376,14 +403,16 @@ class HybridRagService:
         return ChatResponse(answer=answer, results=result.items, relaxation=relaxation, inspector=inspector)
 
     async def map_items(
-        self, session: AsyncSession, *, lat: float, lng: float, radius_km: float, include_unmatched: bool
+        self, session: AsyncSession, *, lat: float, lng: float, radius_km: float, include_unmatched: bool, viewport=None,
     ) -> tuple[list[BranchPin], DiscoveryTrace]:
-        discovery = await self.discovery.ensure_branches(session, lat, lng, radius_km)
-        if discovery.source == "live":
+        options = {"spread_map": True, "viewport": viewport} if isinstance(self.discovery, GooglePlacesDiscovery) else {}
+        discovery = await self.discovery.ensure_branches(session, lat, lng, radius_km, **options)
+        if discovery.source == "live" and discovery.places is None:
             await self.brands.refresh(session)
         else:
             await self.brands.refresh_if_stale(session)
         pins = await nearby_branches(
-            session, lat=lat, lng=lng, radius_km=radius_km, include_unmatched=include_unmatched
+            session, lat=lat, lng=lng, radius_km=radius_km, include_unmatched=include_unmatched,
+            places=discovery.places,
         )
         return pins, _trace(discovery)

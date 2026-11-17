@@ -1,31 +1,26 @@
-import { useEffect, useMemo, useState } from "react";
-import L from "leaflet";
-import { Circle, CircleMarker, MapContainer, Marker, Popup, TileLayer, useMap, useMapEvents } from "react-leaflet";
+import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { brandItems } from "../api/client.js";
 
-const youIcon = L.divIcon({ className: "", html: '<div class="pin-you"></div>', iconSize: [18, 18], iconAnchor: [9, 9] });
-
-function resultIcon(n) {
-  return L.divIcon({
-    className: "",
-    html: `<div class="pin-result"><span>${n}</span></div>`,
-    iconSize: [26, 26],
-    iconAnchor: [13, 26],
-    popupAnchor: [0, -24],
-  });
+const key = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
+let mapsPromise;
+function loadMaps() {
+  if (!mapsPromise) {
+    mapsPromise = new Promise((resolve, reject) => {
+      window.initCalCipherMap = () => resolve(window.google.maps);
+      const script = document.createElement("script");
+      const params = new URLSearchParams({ key, callback: "initCalCipherMap", libraries: "marker", loading: "async" });
+      script.src = "https://maps.googleapis.com/maps/api/js?" + params;
+      script.onerror = () => reject(new Error("Google Maps could not load. Check the connection and reload."));
+      document.head.appendChild(script);
+    });
+  }
+  return mapsPromise;
 }
 
-function ClickToMove({ onMove }) {
-  useMapEvents({ click: (e) => onMove({ lat: e.latlng.lat, lng: e.latlng.lng }) });
-  return null;
-}
-
-function FlyTo({ target }) {
-  const map = useMap();
-  useEffect(() => {
-    if (target) map.flyTo([target.lat, target.lng], Math.max(map.getZoom(), 16), { duration: 0.6 });
-  }, [target, map]);
-  return null;
+function circleIcon(maps, radius, fillColor) {
+  return { path: maps.SymbolPath.CIRCLE, scale: radius, fillColor, fillOpacity: 1,
+    strokeColor: "#18202B", strokeWeight: 2 };
 }
 
 function BrandMenu({ slug }) {
@@ -69,7 +64,7 @@ function BranchPopup({ pin }) {
         </>
       ) : (
         <p className="mt-2 text-sm text-slate-mute">
-          No calorie data yet for this restaurant. It was found on OpenStreetMap but isn't in the
+          No calorie data yet for this restaurant. It was found on Google Maps but isn't in the
           @anongcaloriesnito catalog.
         </p>
       )}
@@ -77,67 +72,101 @@ function BranchPopup({ pin }) {
   );
 }
 
-export default function CalorieMap({ location, onMove, radiusKm, pins, results, focus }) {
-  const center = useMemo(() => [location.lat, location.lng], []); // initial view only
-  const resultKeys = useMemo(() => new Set(results.map((r) => `${r.osm_type}/${r.osm_id}`)), [results]);
+export default function CalorieMap({ location, onMove, onViewport, radiusKm, pins, results, focus, reserveBottom = false }) {
+  const container = useRef(null);
+  const initialCenter = useRef(location);
+  const [map, setMap] = useState(null);
+  const [popup, setPopup] = useState(null);
+  const [error, setError] = useState(null);
 
-  return (
-    <MapContainer center={center} zoom={15} className="h-full w-full" zoomControl={false} attributionControl>
-      <TileLayer
-        attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-        url="https://tile.openstreetmap.org/{z}/{x}/{y}.png"
-        maxZoom={19}
-      />
-      <ClickToMove onMove={onMove} />
-      <FlyTo target={focus} />
-      <Circle
-        center={[location.lat, location.lng]}
-        radius={radiusKm * 1000}
-        pathOptions={{ color: "#18202B", weight: 1.5, dashArray: "6 6", fillColor: "#F2A900", fillOpacity: 0.05 }}
-        interactive={false}
-      />
+  useEffect(() => {
+    if (!key) return;
+    let active = true;
+    loadMaps().then((maps) => {
+      if (active) setMap(new maps.Map(container.current, {
+        center: initialCenter.current, zoom: 16,
+        styles: ["poi", "transit.station"].map(featureType => ({
+          featureType, elementType: "labels", stylers: [{ visibility: "off" }],
+        })),
+        // fullscreen sits top-right by default, where the Chat button lives
+        clickableIcons: false, streetViewControl: false, mapTypeControl: false, fullscreenControl: false,
+      }));
+    }).catch((e) => active && setError(e.message));
+    return () => { active = false; };
+  }, []);
 
-      {pins
-        .filter((p) => !resultKeys.has(`${p.osm_type}/${p.osm_id}`))
-        .map((p) => (
-          <CircleMarker
-            key={`${p.osm_type}/${p.osm_id}`}
-            center={[p.latitude, p.longitude]}
-            radius={p.has_calorie_data ? 8 : 5}
-            pathOptions={
-              p.has_calorie_data
-                ? { color: "#18202B", weight: 1.5, fillColor: "#5B2A86", fillOpacity: 0.95 }
-                : { color: "#7D8792", weight: 1, fillColor: "#A3ABB4", fillOpacity: 0.7 }
-            }
-          >
-            <Popup>
-              <BranchPopup pin={p} />
-            </Popup>
-          </CircleMarker>
-        ))}
+  useEffect(() => {
+    if (!map) return;
+    function reportBounds() {
+      const bounds = map.getBounds()?.toJSON();
+      if (bounds) onViewport([bounds.south, bounds.north, bounds.west, bounds.east]
+        .map(value => value.toFixed(5)).join(","));
+    }
+    const idle = map.addListener("idle", reportBounds);
+    reportBounds();
+    return () => idle.remove();
+  }, [map, onViewport]);
 
-      {results.map((r, i) => (
-        <Marker key={`r-${r.osm_type}/${r.osm_id}/${r.item_id}`} position={[r.latitude, r.longitude]} icon={resultIcon(i + 1)}>
-          <Popup>
-            <div className="w-52">
-              <p className="text-base font-bold leading-tight">{r.food_item}</p>
-              <p className="text-sm">{r.poi_name}</p>
-              <p className="num mt-1 text-sm">
-                <strong>{r.calories} kcal</strong> · {r.distance_km.toFixed(2)} km
-              </p>
-            </div>
-          </Popup>
-        </Marker>
-      ))}
+  useEffect(() => {
+    if (!map) return;
+    const maps = window.google.maps;
+    const marker = new maps.Marker({
+      map, position: location, draggable: true, title: "Your search location", zIndex: 3,
+      icon: circleIcon(maps, 9, "#F2A900"),
+    });
+    const circle = new maps.Circle({ map, center: location, radius: radiusKm * 1000,
+      clickable: false, strokeWeight: 1, fillOpacity: 0.05 });
+    const move = (e) => e.latLng && onMove(e.latLng.toJSON());
+    const click = map.addListener("click", move);
+    const drag = marker.addListener("dragend", move);
+    return () => { click.remove(); drag.remove(); marker.setMap(null); circle.setMap(null); };
+  }, [map, location, onMove, radiusKm]);
 
-      <Marker
-        position={[location.lat, location.lng]}
-        icon={youIcon}
-        draggable
-        eventHandlers={{ dragend: (e) => onMove(e.target.getLatLng()) }}
-        keyboard={false}
-        title="Your search location (drag to move)"
-      />
-    </MapContainer>
-  );
+  useEffect(() => {
+    if (!map || !focus) return;
+    map.panTo({ lat: focus.lat, lng: focus.lng });
+    map.setZoom(Math.max(map.getZoom(), 16));
+  }, [map, focus]);
+
+  useEffect(() => {
+    if (!map) return;
+    const maps = window.google.maps;
+    const info = new maps.InfoWindow();
+    const listings = new Map(pins.map(pin => [pin.place_id, { pin, items: [] }]));
+    results.forEach((item, index) => {
+      if (!listings.has(item.place_id)) listings.set(item.place_id, { pin: item, items: [] });
+      listings.get(item.place_id).items.push({ item, number: index + 1 });
+    });
+    const markers = Array.from(listings.values(), ({ pin, items }) => {
+      const result = items[0];
+      const color = result ? "#F2A900" : pin.has_calorie_data ? "#5B2A86" : "#A3ABB4";
+      const marker = new maps.Marker({
+        map, position: { lat: pin.latitude, lng: pin.longitude }, title: pin.poi_name,
+        icon: circleIcon(maps, result ? 17 : 13, color),
+        label: result ? { text: String(result.number), color: "#18202B", fontWeight: "bold" } : null,
+        zIndex: result ? 2 : pin.has_calorie_data ? 1 : 0,
+      });
+      marker.addListener("click", () => {
+        const node = document.createElement("div");
+        info.setContent(node);
+        info.open({ map, anchor: marker });
+        setPopup({ node, pin, items });
+      });
+      return marker;
+    });
+    return () => { info.close(); setPopup(null); markers.forEach(marker => { marker.setMap(null); }); };
+  }, [map, pins, results]);
+
+  return <>
+    {/* leave room for the collapsed inspector bar only while it is on screen */}
+    <div ref={container} className={`w-full ${reserveBottom ? "h-[calc(100%-2.75rem)]" : "h-full"}`} />
+    {(!key || error) && <p role="alert" className="absolute left-4 top-24 rounded bg-white p-3">
+      {error || "Set VITE_GOOGLE_MAPS_API_KEY in frontend/.env and restart Vite to load Google Maps."}
+    </p>}
+    {popup && createPortal(<>
+      {popup.pin.has_calorie_data !== undefined ? <BranchPopup pin={popup.pin} /> : <strong>{popup.pin.poi_name}</strong>}
+      {popup.items.map(({item, number}) => <p key={item.item_id}>{number}. {item.food_item} · {item.calories} kcal</p>)}
+      {(popup.pin.attributions || []).map(a => <p key={a.provider}>{a.provider}</p>)}
+    </>, popup.node)}
+  </>;
 }
