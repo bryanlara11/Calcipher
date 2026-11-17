@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import CalorieMap from "./components/CalorieMap.jsx";
 import ChatPanel from "./components/ChatPanel.jsx";
 import RagInspector from "./components/RagInspector.jsx";
+import SplashScreen from "./components/SplashScreen.jsx";
 import { chat, mapItems } from "./api/client.js";
 
 const UP_MANILA = { lat: 14.5785, lng: 120.985 };
@@ -157,6 +158,7 @@ export default function App() {
 
   return (
     <div className="flex h-full flex-col lg:flex-row">
+      <SplashScreen />
       <main
         className={`relative shrink-0 overflow-hidden lg:h-full lg:flex-1 ${chatOpen ? "h-[48vh]" : "h-full"}`}
       >

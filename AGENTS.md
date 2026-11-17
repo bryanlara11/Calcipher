@@ -251,3 +251,7 @@ verify live Overpass from a normal network, add Alembic.
 **2026-11-17 — Mobile map-first layout**
 
 - Chat starts hidden behind a Chat button at the top right of the map; its panel and the retrieval inspector each have a close button, and the inspector can be reopened from the chat header. While chat is closed the map fills the screen with only the controls bar and legend. Map error notices can be dismissed and reappear on the next failure. Google's fullscreen control is off so it doesn't sit under the Chat button. Checked at 375×812 and desktop width; the frontend builds.
+
+**2026-11-17 — Opening splash**
+
+- `SplashScreen.jsx` shows an original two-tone flame mark (calorie "burn", not a copy of any existing character), "CalCipher" and "Decipher your food." on the ink background: content fades in, holds, then the screen fades out (~2.1 s). Shown once per browser tab via sessionStorage; tap to skip; a 2.6 s timer clears it if animations never run (background tab, animations disabled). Checked at desktop and 375×812; the frontend builds.

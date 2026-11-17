@@ -29,3 +29,10 @@
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; }
 }
+
+/* Opening splash: content fades in, holds, then the whole screen fades out (~2.1 s).
+   With reduced motion the global rule above removes the fades; it still clears after the delay. */
+.splash { animation: splash-out 450ms ease-in 1650ms forwards; }
+.splash-content { animation: splash-in 550ms ease-out both; }
+@keyframes splash-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@keyframes splash-out { to { opacity: 0; visibility: hidden; } }
