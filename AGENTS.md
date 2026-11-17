@@ -38,6 +38,7 @@ calcipher/
 │   ├── .env.example
 │   ├── app/
 │   │   ├── main.py                  # FastAPI app factory, CORS, rate limit, request IDs, routes
+│   │   ├── ingest.py                # Staged ingestion CLI: scrape → ocr → parse → (review) → load, reembed, status
 │   │   ├── config.py                # Pydantic Settings env validation
 │   │   ├── models.py                # nutrition_catalog, osm_branch_cache, overpass_fetch_log
 │   │   ├── schemas.py               # Pydantic v2 request/response & SearchConstraints
@@ -50,10 +51,11 @@ calcipher/
 │   │   │   ├── query_parser.py      # LLM + deterministic regex constraint extractor
 │   │   │   ├── generator.py         # Grounded answer generation + template fallback + grounding check
 │   │   │   ├── hybrid_rag.py        # Spatial join + hard SQL filters + pgvector ranking + relaxation
-│   │   │   └── ingestion_ocr.py     # Instaloader + OpenCV/PyTesseract OCR pipeline + CLI
+│   │   │   └── ingestion_ocr.py     # OCR building blocks: text parser, OpenCV preprocessing, Tesseract, upsert
 │   │   └── db/
 │   │       ├── session.py           # Async engine/session, init_db (extensions, tables, indexes)
-│   │       └── seed.py              # Seeds catalog + baseline Metro Manila branches (offline demo)
+│   │       ├── maintenance.py       # reembed_catalog, count_stale_embeddings, rematch_branches
+│   │       └── seed.py              # Demo catalog + branches (toggleable), --purge-demo-items, --reembed
 │   └── tests/                       # pytest suite (unit + embedded-Postgres integration)
 └── frontend/
     ├── package.json, vite.config.js, tailwind.config.js, postcss.config.js, index.html
@@ -73,7 +75,9 @@ calcipher/
 `id UUID PK`, `brand_name`, `brand_slug` (indexed), `food_item`, `calories INT` (indexed,
 `CHECK 0..10000`), `protein_g/carbs_g/fat_g NUMERIC(6,2)` nullable (`>= 0`), `serving_size`,
 `is_verified BOOL default false`, `source_post_url`, `context_string` (canonical text that is
-embedded), `embedding VECTOR(768)` with HNSW `vector_cosine_ops`, `created_at`.
+embedded), `embedding VECTOR(768)` with HNSW `vector_cosine_ops`, `embedding_model` (which
+embedder produced the vector; added via `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` in `init_db`),
+`created_at`.
 Unique: `(brand_slug, food_item, serving_size)` → idempotent seeding/ingestion.
 
 ### `osm_branch_cache` (spatial layer)
@@ -113,12 +117,22 @@ an empty neighborhood would otherwise always look like a cache miss.
 - **Never interpolate user input into SQL.** All SQL in `hybrid_rag.py` is module-level constant
   text with bound params (`:user_lat`, `:user_lng`, `:max_cal`, `:query_vec`, …).
 - **Macro physics before I/O:** `min_protein_g * 4 > max_calories` → HTTP 422 before Overpass/DB.
-- **One embedding space:** the catalog and queries must be embedded by the same backend. Changing
-  `EMBEDDER_BACKEND`/`EMBEDDING_MODEL` requires `python -m app.db.seed --reembed`.
+- **One embedding space:** the catalog and queries must be embedded by the same backend. Every
+  write stores `embedding_model`; rows that differ from the running embedder are "stale" (startup
+  warning + `stale_embeddings` in `/api/v1/health`). Fix with `python -m app.ingest reembed`.
   Default model `sentence-transformers/all-distilroberta-v1` (RoBERTa, 768-dim).
   Note: `all-roberta-large-v1` is **1024-dim** and is incompatible with `VECTOR(768)`.
 - **Context strings** are always produced by `ingestion_ocr.build_context_string` (seed + OCR).
-- **OCR rows are never `is_verified`**, and ingestion upserts never overwrite verified rows.
+- **Ingestion is staged** (`app/ingest.py`): scrape → `data/raw`, ocr → `data/ocr` (cached by
+  image sha256 + engine id; bump `PREPROCESS_VERSION` when preprocessing changes), parse →
+  `data/review/parsed.csv` + appends *new posts only* to `reviewed.csv` (human-owned, never
+  rewritten), load → validates all-or-nothing, upserts, then `rematch_branches`.
+- **Verification is human-only:** rows become `is_verified` only via `verified=yes` in
+  reviewed.csv. Unverified writes never overwrite verified rows; demo seeding never overwrites
+  scraped (`source_post_url` set) or verified rows; `--purge-demo-items` never deletes them.
+- **Branch matches are refreshed after brand changes:** `rematch_branches` only fills unmatched
+  branches or clears slugs whose brand left the catalog (the OSM brand tag isn't cached). The API's
+  `BrandRegistry` reloads brands every 5 minutes.
 - **Overpass fair use:** descriptive User-Agent, `asyncio.Semaphore(1)`, 24h grid cache,
   single-flight lock around check→fetch→store, radius capped at `OVERPASS_MAX_RADIUS_M` (5 km).
 - Seed nutrition values are **illustrative estimates for offline development**, not scraped data;
@@ -164,6 +178,20 @@ _(updated at the end of every completed task)_
       draggable pin, brand menus in popups; chat with nutrition-facts result panels; inspector drawer.
 - [x] Dev tooling: `backend/dev_db.py` (embedded Postgres), `backend/run.py`, `.claude/launch.json`.
 
+**2026-11-17 — ingestion split + data-loading gaps fixed**
+
+- [x] `python -m app.ingest scrape|ocr|parse|load|reembed|status` with per-stage files under
+      `backend/data/` (git-ignored). Scrape writes meta last so interrupted posts retry; stops on
+      rate-limit/login errors. OCR cached per image. Parse learns brands from reviewed.csv and adds
+      placeholder rows for posts with no parsed items.
+- [x] Tesseract auto-detected (PATH, then `C:\Program Files\Tesseract-OCR`); `TESSERACT_CMD` and
+      `OCR_LANG` settings. Real-Tesseract roundtrip test now runs (Tesseract 5.5.3).
+- [x] Parser joins wrapped item names ("Chicken Inasal Pecho" / "without Rice").
+- [x] `SEED_DEMO_ITEMS` / `SEED_DEMO_BRANCHES` toggles, `--purge-demo-items`.
+- [x] `embedding_model` tracking, `reembed` over all rows, stale count in health + startup warning.
+- [x] Tests: 196 passing, none skipped.
+- Not yet run against real Instagram posts (scrape needs your login session).
+
 **Not yet verified / known gaps**
 
 - Live Overpass fetch was **not** exercised end-to-end: Overpass was unreachable from the dev
@@ -172,8 +200,10 @@ _(updated at the end of every completed task)_
   used `EMBEDDER_BACKEND=hash` and the template generator.
 - docker-compose / Dockerfile were written but not built (Docker isn't installed on the dev machine).
 - OCR parsing is tuned to plausible formats; it has not been run against real
-  @anongcaloriesnito posts yet. Run `--dry-run` first and adjust `_CAL_PATTERNS`/`_MACRO_PATTERNS`.
+  @anongcaloriesnito posts yet. Pilot ~15 posts, inspect `data/ocr/*.json` + reviewed.csv, then
+  adjust `_CAL_PATTERNS`/`_MACRO_PATTERNS` and add real samples as test cases.
 - No Alembic migrations; rate limiter is per-process (use Redis for multiple workers).
 
-**Suggested next steps**: run the ingestion CLI on real posts (dry-run), switch to the RoBERTa
-embedder + `seed --reembed`, verify live Overpass from a normal network, add Alembic.
+**Suggested next steps**: pilot the ingestion CLI on real posts, then switch to the RoBERTa
+embedder + `python -m app.ingest reembed`, set `SEED_DEMO_ITEMS=false` + `--purge-demo-items`,
+verify live Overpass from a normal network, add Alembic.

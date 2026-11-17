@@ -1,12 +1,17 @@
 """Idempotent seed: nutrition catalog + baseline Metro Manila branches.
 
     python -m app.db.seed            # upsert catalog + branches (embeds only new/changed rows)
-    python -m app.db.seed --reembed  # recompute every embedding (after changing EMBEDDER_BACKEND)
+    python -m app.db.seed --reembed  # recompute EVERY catalog embedding (demo + scraped rows)
+    python -m app.db.seed --purge-demo-items   # delete the illustrative demo items
+
+SEED_DEMO_ITEMS / SEED_DEMO_BRANCHES (env) switch each part off; init_db always runs.
 
 DATA HONESTY NOTE
 - Nutrition values below are *illustrative estimates* written in the @anongcaloriesnito style for
   offline development. They were NOT scraped and are stored with `is_verified = false` and no
   `source_post_url`. Replace them with OCR-ingested rows (`app.services.ingestion_ocr`).
+- Demo items are only written while SEED_DEMO_ITEMS=true; `--purge-demo-items` removes them
+  (and never touches scraped or verified rows).
 - Branch coordinates are *approximate* hand-placed points around UP Manila/Taft, Makati and
   Quezon City, stored with `osm_type = 'seed'` (not real OSM IDs). The first successful live
   Overpass fetch covering an area purges the seed rows inside it.
@@ -20,10 +25,12 @@ import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
-from sqlalchemy import select
+from sqlalchemy import and_, delete, or_, select, tuple_
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import get_settings
+from app.db.maintenance import reembed_catalog
 from app.db.session import ensure_selector_event_loop_policy, get_engine, get_sessionmaker, init_db
 from app.models import NutritionCatalog, OsmBranchCache, OverpassFetchLog
 from app.services.brand_matcher import BrandMatcher
@@ -142,7 +149,15 @@ async def seed_catalog(session: AsyncSession, embedder: Embedder, *, reembed: bo
             item.protein_g, item.carbs_g, item.fat_g,
         )
         row = existing.get((item.brand_slug, item.food_item, item.serving_size))
-        if reembed or row is None or row.context_string != ctx or row.embedding is None:
+        if row is not None and (row.source_post_url is not None or row.is_verified):
+            continue  # a real (scraped or audited) row with the same key wins over demo data
+        if (
+            reembed
+            or row is None
+            or row.context_string != ctx
+            or row.embedding is None
+            or row.embedding_model != embedder.name
+        ):
             pending.append((item, ctx))
     if not pending:
         return 0
@@ -162,6 +177,7 @@ async def seed_catalog(session: AsyncSession, embedder: Embedder, *, reembed: bo
             "source_post_url": None,
             "context_string": ctx,
             "embedding": vec,
+            "embedding_model": embedder.name,
         }
         for (it, ctx), vec in zip(pending, vectors, strict=True)
     ]
@@ -169,7 +185,8 @@ async def seed_catalog(session: AsyncSession, embedder: Embedder, *, reembed: bo
     stmt = stmt.on_conflict_do_update(
         constraint="uq_catalog_item",
         set_={c: stmt.excluded[c] for c in ("brand_name", "calories", "protein_g", "carbs_g",
-                                              "fat_g", "context_string", "embedding")},
+                                              "fat_g", "context_string", "embedding", "embedding_model")},
+        where=and_(NutritionCatalog.source_post_url.is_(None), NutritionCatalog.is_verified.is_(False)),
     )
     await session.execute(stmt)
     await session.commit()
@@ -214,21 +231,59 @@ async def seed_branches(session: AsyncSession) -> int:
     return inserted
 
 
-async def run_seed(*, reembed: bool = False, embedder: Embedder | None = None) -> dict[str, int]:
+async def purge_demo_items(session: AsyncSession) -> int:
+    """Delete the illustrative demo items. Scraped (has a post URL) or verified rows are kept."""
+    keys = [(i.brand_slug, i.food_item, i.serving_size) for i in SEED_ITEMS]
+    stmt = (
+        delete(NutritionCatalog)
+        .where(
+            tuple_(NutritionCatalog.brand_slug, NutritionCatalog.food_item, NutritionCatalog.serving_size).in_(keys),
+            NutritionCatalog.source_post_url.is_(None),
+            or_(NutritionCatalog.is_verified.is_(False), NutritionCatalog.is_verified.is_(None)),
+        )
+        .returning(NutritionCatalog.id)
+    )
+    deleted = len((await session.execute(stmt)).all())
+    await session.commit()
+    return deleted
+
+
+async def run_seed(
+    *,
+    reembed: bool = False,
+    purge_demo: bool = False,
+    embedder: Embedder | None = None,
+    demo_items: bool | None = None,
+    demo_branches: bool | None = None,
+) -> dict[str, int]:
+    settings = get_settings()
+    demo_items = settings.seed_demo_items if demo_items is None else demo_items
+    demo_branches = settings.seed_demo_branches if demo_branches is None else demo_branches
+    embedder = embedder or get_embedder()
+    result = {"catalog_rows_written": 0, "branch_rows_inserted": 0, "demo_items_purged": 0, "rows_reembedded": 0}
     await init_db(get_engine())
     async with get_sessionmaker()() as session:
-        items = await seed_catalog(session, embedder or get_embedder(), reembed=reembed)
-        branches = await seed_branches(session)
-    return {"catalog_rows_written": items, "branch_rows_inserted": branches}
+        if purge_demo:
+            result["demo_items_purged"] = await purge_demo_items(session)
+        elif demo_items:
+            result["catalog_rows_written"] = await seed_catalog(session, embedder)
+        if demo_branches:
+            result["branch_rows_inserted"] = await seed_branches(session)
+        if reembed:
+            result["rows_reembedded"] = await reembed_catalog(session, embedder, only_stale=False)
+    return result
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Seed CalCipher demo data")
-    parser.add_argument("--reembed", action="store_true", help="recompute all seed embeddings")
+    parser.add_argument("--reembed", action="store_true",
+                        help="recompute embeddings for every catalog row (demo and scraped)")
+    parser.add_argument("--purge-demo-items", action="store_true",
+                        help="delete the illustrative demo items instead of seeding them")
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
     ensure_selector_event_loop_policy()
-    print(asyncio.run(run_seed(reembed=args.reembed)))
+    print(asyncio.run(run_seed(reembed=args.reembed, purge_demo=args.purge_demo_items)))
 
 
 if __name__ == "__main__":

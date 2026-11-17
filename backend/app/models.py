@@ -60,6 +60,9 @@ class NutritionCatalog(Base):
     source_post_url: Mapped[str | None] = mapped_column(Text)
     context_string: Mapped[str] = mapped_column(Text, nullable=False)
     embedding: Mapped[list[float] | None] = mapped_column(Vector(EMBEDDING_DIM))
+    # Which embedder produced `embedding` (e.g. "hash-768" or a sentence-transformers model id).
+    # Rows whose value differs from the running embedder live in a different vector space.
+    embedding_model: Mapped[str | None] = mapped_column(String(255))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

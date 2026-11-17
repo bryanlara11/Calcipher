@@ -318,6 +318,8 @@ class HybridRagService:
         discoveries = [await self.discovery.ensure_branches(session, lat, lng, constraints.max_distance_km)]
         if discoveries[0].source == "live":
             await self.brands.refresh(session)
+        else:
+            await self.brands.refresh_if_stale(session)
         t = lap("discovery", t)
 
         # Stage 3: embed + hybrid SQL.
@@ -379,6 +381,8 @@ class HybridRagService:
         discovery = await self.discovery.ensure_branches(session, lat, lng, radius_km)
         if discovery.source == "live":
             await self.brands.refresh(session)
+        else:
+            await self.brands.refresh_if_stale(session)
         pins = await nearby_branches(
             session, lat=lat, lng=lng, radius_km=radius_km, include_unmatched=include_unmatched
         )

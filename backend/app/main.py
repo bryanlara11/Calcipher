@@ -25,6 +25,7 @@ from app.schemas import (
     ChatResponse,
     MapItemsResponse,
 )
+from app.db.maintenance import count_stale_embeddings
 from app.security import MacroPhysicsError, SlidingWindowRateLimiter
 from app.services.brand_matcher import BrandRegistry, normalize_brand
 from app.services.embedder import get_embedder
@@ -76,7 +77,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     brands = BrandRegistry()
     async with get_sessionmaker()() as session:
         await brands.refresh(session)
-    app.state.rag = build_rag_service(settings, brands)
+        app.state.rag = build_rag_service(settings, brands)
+        stale = await count_stale_embeddings(session, app.state.rag.embedder.name)
+    if stale:
+        logger.warning(
+            "%d catalog row(s) were embedded by a different model than %s; semantic ranking is "
+            "unreliable until you run `python -m app.ingest reembed`.",
+            stale, app.state.rag.embedder.name,
+        )
     logger.info(
         "CalCipher ready: %d brands, embedder=%s, llm=%s, overpass=%s",
         len(brands.matcher), app.state.rag.embedder.name, settings.llm_enabled, settings.overpass_enabled,
@@ -157,16 +165,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.get("/api/v1/health")
     async def health(request: Request, session: SessionDep) -> dict[str, object]:
         db_ok = True
+        rag = getattr(request.app.state, "rag", None)
+        stale: int | None = None
         try:
             await session.execute(text("SELECT 1"))
+            if rag:
+                stale = await count_stale_embeddings(session, rag.embedder.name)
         except Exception:
             db_ok = False
-        rag = getattr(request.app.state, "rag", None)
         return {
             "status": "ok" if db_ok and rag else "degraded",
             "database": db_ok,
             "pg_trgm": getattr(request.app.state, "db_caps", {}).get("pg_trgm", False),
             "embedder": rag.embedder.name if rag else None,
+            "stale_embeddings": stale,
             "brands": len(rag.brands.matcher) if rag else 0,
             "llm_enabled": settings.llm_enabled,
             "overpass_enabled": settings.overpass_enabled,

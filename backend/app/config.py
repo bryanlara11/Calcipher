@@ -42,6 +42,16 @@ class Settings(BaseSettings):
     embedder_backend: Literal["sentence-transformers", "hash"] = "sentence-transformers"
     embedding_model: str = "sentence-transformers/all-distilroberta-v1"
 
+    # --- Demo data (python -m app.db.seed) ---
+    # Turn these off once real @anongcaloriesnito data is loaded; the docker image runs the
+    # seed script on every boot.
+    seed_demo_items: bool = True
+    seed_demo_branches: bool = True
+
+    # --- OCR ingestion ---
+    tesseract_cmd: str | None = None  # auto-detected from PATH / default install dirs if unset
+    ocr_lang: str = "eng"
+
     # --- LLM (optional) ---
     gemini_api_key: SecretStr | None = None
     gemini_model: str = "gemini-2.5-flash"

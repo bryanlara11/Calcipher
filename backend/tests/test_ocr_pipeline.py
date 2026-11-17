@@ -1,17 +1,13 @@
-import shutil
-
 import pytest
 from PIL import Image, ImageDraw
 
-from app.services import ingestion_ocr
 from app.services.ingestion_ocr import (
-    DownloadedPost,
     build_context_string,
+    find_tesseract,
     fix_ocr_digits,
     macro_energy_consistent,
     parse_nutrition_text,
     preprocess_image,
-    process_post,
     upsert_catalog_items,
 )
 
@@ -122,37 +118,24 @@ def test_preprocess_upscales_and_binarizes_to_dark_on_light(dark):
     assert data.count(255) > out.width * out.height / 2
 
 
-def test_process_post_runs_ocr_on_each_image(matcher, monkeypatch, tmp_path):
-    paths = []
-    for i, line in enumerate(["Yumburger 280 kcal", "Jolly Spaghetti 480 kcal"]):
-        p = tmp_path / f"ABC_{i}.jpg"
-        _text_image([line]).save(p)
-        paths.append(p)
-    fake_ocr = {str(paths[0]): "Yumburger 280 kcal\nProtein 12g", str(paths[1]): "Jolly Spaghetti 480 kcal"}
-    monkeypatch.setattr(ingestion_ocr, "ocr_image", lambda path: fake_ocr[str(path)])
-    post = DownloadedPost("ABC", POST_URL, "#jollibee", paths)
-    items = process_post(post, matcher)
-    assert [(i.food_item, i.calories) for i in items] == [("Yumburger", 280), ("Jolly Spaghetti", 480)]
-
-
-def test_process_post_survives_ocr_failure(matcher, monkeypatch, tmp_path):
-    def boom(path):
-        raise RuntimeError("tesseract crashed")
-
-    monkeypatch.setattr(ingestion_ocr, "ocr_image", boom)
-    post = DownloadedPost("ABC", POST_URL, "Jollibee Yumburger 280 kcal", [tmp_path / "x.jpg"])
-    assert [i.calories for i in process_post(post, matcher)] == [280]  # caption still parsed
-
-
-@pytest.mark.skipif(shutil.which("tesseract") is None, reason="tesseract binary not installed")
-def test_real_tesseract_roundtrip():  # pragma: no cover - only where tesseract exists
+@pytest.mark.skipif(find_tesseract() is None, reason="tesseract binary not installed")
+def test_real_tesseract_roundtrip(tmp_path, matcher):  # pragma: no cover - only where tesseract exists
     from PIL import ImageFont
 
-    img = Image.new("RGB", (900, 120), "white")
-    ImageDraw.Draw(img).text((10, 30), "Yumburger 280 kcal", fill="black", font=ImageFont.load_default(size=48))
-    import pytesseract
+    from app.services.ingestion_ocr import ocr_image
 
-    assert "280" in pytesseract.image_to_string(preprocess_image(img))
+    img = Image.new("RGB", (1080, 400), "white")
+    draw = ImageDraw.Draw(img)
+    font = ImageFont.load_default(size=56)
+    draw.text((40, 40), "Chickenjoy with Rice", fill="black", font=font)
+    draw.text((40, 140), "540 kcal", fill="black", font=font)
+    draw.text((40, 240), "Protein 26g Carbs 50g Fat 26g", fill="black", font=font)
+    path = tmp_path / "post.jpg"
+    img.save(path)
+
+    text = ocr_image(path)
+    items = parse_nutrition_text("#jollibee", text, matcher)
+    assert [(i.food_item, i.calories, i.protein_g) for i in items] == [("Chickenjoy with Rice", 540, 26.0)]
 
 
 @pytest.mark.db
@@ -174,3 +157,21 @@ async def test_upsert_is_idempotent_and_never_overwrites_verified(db_session, ma
     db_session.expire_all()
     row = (await db_session.execute(select(NutritionCatalog))).scalar_one()
     assert row.calories == 290  # audited value preserved
+
+
+@pytest.mark.parametrize(
+    ("ocr", "expected"),
+    [
+        ("Chicken Inasal Pecho\nwithout Rice\n360 kcal", "Chicken Inasal Pecho without Rice"),
+        ("Chicken Inasal Pecho\n\nWithout Rice\n\n360 kcal", "Chicken Inasal Pecho Without Rice"),
+        ("Burger Steak\n(with egg)\n470 kcal", "Burger Steak (with egg)"),
+        ("Burger Steak\n(1 pc)\n470 kcal", "Burger Steak"),  # serving-size line, not part of the name
+        # A new Title-case line is a new name, not a continuation of the previous one.
+        ("Spicy Week Special\nBurger Steak\n470 kcal", "Burger Steak"),
+        # Names never join across a calorie line.
+        ("Yumburger 280 kcal\nwith fries\n450 kcal", "with fries"),
+    ],
+)
+def test_wrapped_item_names(matcher, ocr, expected):
+    items = parse_nutrition_text("#jollibee", ocr, matcher)
+    assert items[-1].food_item == expected

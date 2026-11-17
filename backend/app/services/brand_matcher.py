@@ -13,6 +13,7 @@ Resolution order (first hit wins):
 from __future__ import annotations
 
 import re
+import time
 import unicodedata
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
@@ -200,8 +201,10 @@ async def load_brand_matcher(session: AsyncSession) -> BrandMatcher:
 class BrandRegistry:
     """In-memory cache of the current BrandMatcher so request parsing needs no DB round trip."""
 
-    def __init__(self, matcher: BrandMatcher | None = None) -> None:
+    def __init__(self, matcher: BrandMatcher | None = None, *, max_age_s: float = 300.0) -> None:
         self._matcher = matcher or BrandMatcher([])
+        self.max_age_s = max_age_s
+        self._loaded_at = time.monotonic() if matcher is not None else float("-inf")
 
     @property
     def matcher(self) -> BrandMatcher:
@@ -209,4 +212,11 @@ class BrandRegistry:
 
     async def refresh(self, session: AsyncSession) -> BrandMatcher:
         self._matcher = await load_brand_matcher(session)
+        self._loaded_at = time.monotonic()
+        return self._matcher
+
+    async def refresh_if_stale(self, session: AsyncSession) -> BrandMatcher:
+        """Pick up brands added by `python -m app.ingest load` without restarting the API."""
+        if time.monotonic() - self._loaded_at > self.max_age_s:
+            await self.refresh(session)
         return self._matcher

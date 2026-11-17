@@ -1,24 +1,18 @@
-"""@anongcaloriesnito ingestion: Instaloader download -> OpenCV preprocessing -> Tesseract OCR ->
-nutrition parsing -> validation -> embedding -> idempotent upsert into `nutrition_catalog`.
+"""Building blocks for @anongcaloriesnito ingestion: canonical context strings, OCR-text
+parsing, image preprocessing, Tesseract OCR and catalog upserts.
 
-CLI (run from backend/):
-    python -m app.services.ingestion_ocr --max-posts 20 --dir data/raw            # download + ingest
-    python -m app.services.ingestion_ocr --dir data/raw --skip-download --dry-run # re-parse local files
-
-Instagram throttles anonymous scraping heavily. For more than a handful of posts, log in once with
-`instaloader --login <your_username>` and pass `--login <your_username>` to reuse that session.
-Use this for academic research only and respect Instagram's terms and rate limits.
+The staged pipeline (scrape -> ocr -> parse -> review -> load) lives in `app/ingest.py`:
+    python -m app.ingest --help
 """
 
 from __future__ import annotations
 
-import argparse
 import asyncio
-import json
 import logging
 import re
-from collections.abc import Iterator, Sequence
-from dataclasses import asdict, dataclass, field
+import shutil
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass, field
 from decimal import Decimal
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -176,13 +170,15 @@ def macro_energy_consistent(
     return energy <= calories * (1 + tolerance)
 
 
-def detect_brand(caption: str, ocr_text: str, matcher: BrandMatcher) -> tuple[str, str] | None:
+def detect_brand(
+    caption: str, ocr_text: str, matcher: BrandMatcher, display_names: Mapping[str, str] | None = None
+) -> tuple[str, str] | None:
     """Return (brand_name, brand_slug). Prefers a known catalog brand; else an explicit brand line."""
     handles = " ".join(_HASHTAG_OR_MENTION.findall(caption))
     for blob in (handles, caption, ocr_text):
         slug = matcher.find_in_text(blob.replace("_", " "))
         if slug:
-            return _display_name(slug), slug
+            return display_name(slug, display_names), slug
     for line in (caption + "\n" + ocr_text).splitlines():
         m = _BRAND_LINE.match(line)
         if m:
@@ -192,7 +188,7 @@ def detect_brand(caption: str, ocr_text: str, matcher: BrandMatcher) -> tuple[st
     return None
 
 
-_DISPLAY_NAMES = {
+KNOWN_BRAND_NAMES: dict[str, str] = {
     "andoks": "Andok's",
     "24 chicken": "24 Chicken",
     "mang inasal": "Mang Inasal",
@@ -205,8 +201,10 @@ _DISPLAY_NAMES = {
 }
 
 
-def _display_name(slug: str) -> str:
-    return _DISPLAY_NAMES.get(slug, slug.title())
+def display_name(slug: str, overrides: Mapping[str, str] | None = None) -> str:
+    if overrides and slug in overrides:
+        return overrides[slug]
+    return KNOWN_BRAND_NAMES.get(slug, slug.title())
 
 
 def _clean_item_name(text: str) -> str:
@@ -214,6 +212,15 @@ def _clean_item_name(text: str) -> str:
     text = re.sub(r"[^\w\s&'().,/+-]", " ", text)
     text = re.sub(r"\s+", " ", text).strip(" -–:|,.")
     return text[:255]
+
+
+# Connector words only; case-insensitive, so no letter class here (it would match any word).
+_CONTINUATION = re.compile(r"^(?:with|without|w/o|w/|and|plus|no|sans)\b", re.I)
+
+
+def _is_name_continuation(line: str) -> bool:
+    """A wrapped second line of an item name: starts lowercase or with a connector word."""
+    return bool(line) and (line[0].islower() or line[0] in "(&+" or bool(_CONTINUATION.match(line)))
 
 
 def _looks_like_item_name(line: str) -> bool:
@@ -231,6 +238,7 @@ def parse_nutrition_text(
     matcher: BrandMatcher,
     *,
     source_post_url: str | None = None,
+    display_names: Mapping[str, str] | None = None,
 ) -> list[ParsedNutrition]:
     """Parse one post (caption + OCR of its images) into zero or more catalog rows.
 
@@ -240,7 +248,7 @@ def parse_nutrition_text(
     """
     caption = caption or ""
     text = fix_ocr_digits(f"{ocr_text or ''}\n{caption}")
-    brand = detect_brand(caption, ocr_text or "", matcher)
+    brand = detect_brand(caption, ocr_text or "", matcher, display_names)
     if brand is None:
         logger.info("No brand found for post %s", source_post_url)
         return []
@@ -249,6 +257,7 @@ def parse_nutrition_text(
 
     records: list[dict[str, Any]] = []
     last_name: str | None = None
+    prev_was_name = False  # was the previous non-blank line part of an item name?
     for raw_line in text.splitlines():
         line = raw_line.strip()
         if not line:
@@ -259,10 +268,20 @@ def parse_nutrition_text(
             before = _clean_item_name(line[: cal.start()])
             name = before if _looks_like_item_name(before) else last_name
             records.append({"food_item": name, "calories": calories, "line": line})
+            prev_was_name = False
         elif _looks_like_item_name(line):
             candidate = _clean_item_name(line)
             if set(normalize_brand(candidate).split()) - brand_tokens:  # not just the brand name
-                last_name = candidate
+                # Graphics often wrap long names: "Chicken Inasal Pecho" / "without Rice".
+                if prev_was_name and last_name and _is_name_continuation(candidate):
+                    last_name = f"{last_name} {candidate}"[:255]
+                else:
+                    last_name = candidate
+                prev_was_name = True
+            else:
+                prev_was_name = False
+        else:
+            prev_was_name = False
         if records:
             current = records[-1]
             for key, patterns in _MACRO_PATTERNS.items():
@@ -342,107 +361,89 @@ def preprocess_image(image: PILImage.Image) -> PILImage.Image:
         return binary
 
 
+# Bump when preprocess_image or the Tesseract config changes, so cached OCR text is redone.
+PREPROCESS_VERSION = "1"
+TESSERACT_CONFIG = "--oem 3 --psm 6"
+_WINDOWS_TESSERACT = (
+    Path(r"C:\Program Files\Tesseract-OCR\tesseract.exe"),
+    Path(r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe"),
+)
+
+
+class TesseractNotFoundError(RuntimeError):
+    pass
+
+
+def find_tesseract(configured: str | None = None) -> str | None:
+    """Explicit setting -> PATH -> default Windows install locations."""
+    if configured:
+        return configured if Path(configured).is_file() or shutil.which(configured) else None
+    on_path = shutil.which("tesseract")
+    if on_path:
+        return on_path
+    return next((str(p) for p in _WINDOWS_TESSERACT if p.is_file()), None)
+
+
+def configure_tesseract(configured: str | None = None) -> str:
+    import pytesseract
+
+    from app.config import get_settings
+
+    cmd = find_tesseract(configured or get_settings().tesseract_cmd)
+    if cmd is None:
+        raise TesseractNotFoundError(
+            "Tesseract not found. Install it (Windows: UB Mannheim build) or set TESSERACT_CMD "
+            "to the full path of tesseract.exe."
+        )
+    pytesseract.pytesseract.tesseract_cmd = cmd
+    return cmd
+
+
+def tesseract_engine_id(lang: str) -> str:
+    """Identifies everything that affects OCR output; part of the OCR cache key."""
+    import pytesseract
+
+    configure_tesseract()
+    return f"tesseract-{pytesseract.get_tesseract_version()}|{lang}|{TESSERACT_CONFIG}|pre{PREPROCESS_VERSION}"
+
+
 def ocr_image(path: str | Path, *, lang: str = "eng") -> str:
     import pytesseract
     from PIL import Image
 
+    configure_tesseract()
     with Image.open(path) as img:
         prepared = preprocess_image(img.convert("RGB"))
-    return pytesseract.image_to_string(prepared, lang=lang, config="--oem 3 --psm 6")
-
-
-# ---------------------------------------------------------------------------
-# Instaloader download
-# ---------------------------------------------------------------------------
-
-
-@dataclass(slots=True)
-class DownloadedPost:
-    shortcode: str
-    url: str
-    caption: str
-    image_paths: list[Path]
-
-
-def download_posts(
-    target_dir: Path,
-    *,
-    profile: str = DEFAULT_PROFILE,
-    max_posts: int = 20,
-    login: str | None = None,
-) -> Iterator[DownloadedPost]:
-    import instaloader
-
-    target_dir.mkdir(parents=True, exist_ok=True)
-    loader = instaloader.Instaloader(
-        dirname_pattern=str(target_dir),
-        filename_pattern="{shortcode}",
-        download_videos=False,
-        download_video_thumbnails=False,
-        download_geotags=False,
-        download_comments=False,
-        save_metadata=False,
-        compress_json=False,
-        post_metadata_txt_pattern="",
-        quiet=True,
-        max_connection_attempts=3,
-        request_timeout=30.0,
-    )
-    if login:
-        loader.load_session_from_file(login)
-    prof = instaloader.Profile.from_username(loader.context, profile)
-    for index, post in enumerate(prof.get_posts()):
-        if index >= max_posts:
-            break
-        caption = post.caption or ""
-        if not list(target_dir.glob(f"{post.shortcode}*.jpg")):
-            loader.download_post(post, target=profile)
-        (target_dir / f"{post.shortcode}.caption.txt").write_text(caption, encoding="utf-8")
-        yield DownloadedPost(
-            shortcode=post.shortcode,
-            url=f"https://www.instagram.com/p/{post.shortcode}/",
-            caption=caption,
-            image_paths=sorted(target_dir.glob(f"{post.shortcode}*.jpg")),
-        )
-
-
-def iter_local_posts(target_dir: Path) -> Iterator[DownloadedPost]:
-    """Re-parse previously downloaded posts without touching the network."""
-    for caption_file in sorted(target_dir.glob("*.caption.txt")):
-        shortcode = caption_file.name.removesuffix(".caption.txt")
-        yield DownloadedPost(
-            shortcode=shortcode,
-            url=f"https://www.instagram.com/p/{shortcode}/",
-            caption=caption_file.read_text(encoding="utf-8"),
-            image_paths=sorted(target_dir.glob(f"{shortcode}*.jpg")),
-        )
-
-
-def process_post(post: DownloadedPost, matcher: BrandMatcher) -> list[ParsedNutrition]:
-    ocr_chunks = []
-    for path in post.image_paths:
-        try:
-            ocr_chunks.append(ocr_image(path))
-        except Exception:
-            logger.exception("OCR failed for %s", path)
-    return parse_nutrition_text(post.caption, "\n".join(ocr_chunks), matcher, source_post_url=post.url)
+    return pytesseract.image_to_string(prepared, lang=lang, config=TESSERACT_CONFIG)
 
 
 # ---------------------------------------------------------------------------
 # Persistence
 # ---------------------------------------------------------------------------
 
+_UPDATABLE = ("brand_name", "calories", "protein_g", "carbs_g", "fat_g", "source_post_url",
+              "context_string", "embedding", "embedding_model", "is_verified")
+
 
 async def upsert_catalog_items(
-    session: AsyncSession, items: Sequence[ParsedNutrition], embedder: Embedder
+    session: AsyncSession,
+    items: Sequence[ParsedNutrition],
+    embedder: Embedder,
+    *,
+    verified: Sequence[bool] | None = None,
 ) -> int:
-    """Insert or refresh rows. Never overwrites rows that were manually verified."""
+    """Insert or refresh catalog rows, embedding each with the current embedder.
+
+    `verified[i]` marks row i as human-audited. Audited rows overwrite whatever is stored.
+    Unaudited rows never overwrite a row that is already verified.
+    """
     from sqlalchemy.dialects.postgresql import insert
 
     from app.models import NutritionCatalog
 
     if not items:
         return 0
+    flags = list(verified) if verified is not None else [False] * len(items)
     contexts = [i.context_string for i in items]
     vectors = await asyncio.to_thread(embedder.embed, contexts)
     rows = [
@@ -455,73 +456,25 @@ async def upsert_catalog_items(
             "carbs_g": i.carbs_g,
             "fat_g": i.fat_g,
             "serving_size": i.serving_size,
-            "is_verified": False,
+            "is_verified": flag,
             "source_post_url": i.source_post_url,
             "context_string": ctx,
             "embedding": vec,
+            "embedding_model": embedder.name,
         }
-        for i, ctx, vec in zip(items, contexts, vectors, strict=True)
+        for i, ctx, vec, flag in zip(items, contexts, vectors, flags, strict=True)
     ]
-    stmt = insert(NutritionCatalog).values(rows)
-    stmt = stmt.on_conflict_do_update(
-        constraint="uq_catalog_item",
-        set_={
-            col: stmt.excluded[col]
-            for col in ("brand_name", "calories", "protein_g", "carbs_g", "fat_g",
-                        "source_post_url", "context_string", "embedding")
-        },
-        where=NutritionCatalog.is_verified.is_(False),
-    ).returning(NutritionCatalog.id)
-    written = len((await session.execute(stmt)).all())
+    written = 0
+    for audited in (True, False):
+        batch = [r for r in rows if r["is_verified"] is audited]
+        if not batch:
+            continue
+        stmt = insert(NutritionCatalog).values(batch)
+        stmt = stmt.on_conflict_do_update(
+            constraint="uq_catalog_item",
+            set_={col: stmt.excluded[col] for col in _UPDATABLE},
+            where=None if audited else NutritionCatalog.is_verified.is_(False),
+        ).returning(NutritionCatalog.id)
+        written += len((await session.execute(stmt)).all())
     await session.commit()
     return written
-
-
-async def _run_cli(args: argparse.Namespace) -> None:
-    from app.db.session import get_sessionmaker, init_db, get_engine
-    from app.services.brand_matcher import load_brand_matcher
-    from app.services.embedder import get_embedder
-
-    target = Path(args.dir)
-    await init_db(get_engine())
-    async with get_sessionmaker()() as session:
-        db_matcher = await load_brand_matcher(session)
-        matcher = BrandMatcher(set(db_matcher.slugs) | set(_DISPLAY_NAMES))
-        posts = (
-            iter_local_posts(target)
-            if args.skip_download
-            else download_posts(target, profile=args.profile, max_posts=args.max_posts, login=args.login)
-        )
-        parsed: list[ParsedNutrition] = []
-        for post in posts:
-            items = process_post(post, matcher)
-            logger.info("%s -> %d item(s)", post.shortcode, len(items))
-            parsed.extend(items)
-        clean = [p for p in parsed if not p.is_suspect or args.keep_suspect]
-        print(json.dumps([asdict(p) for p in parsed], indent=2, default=str))
-        if args.dry_run:
-            print(f"[dry-run] parsed {len(parsed)} item(s), {len(clean)} would be stored")
-            return
-        stored = await upsert_catalog_items(session, clean, get_embedder())
-        print(f"stored/updated {stored} item(s); skipped {len(parsed) - len(clean)} suspect")
-
-
-def main() -> None:
-    from app.db.session import ensure_selector_event_loop_policy
-
-    parser = argparse.ArgumentParser(description="Ingest @anongcaloriesnito posts via OCR")
-    parser.add_argument("--profile", default=DEFAULT_PROFILE)
-    parser.add_argument("--max-posts", type=int, default=20)
-    parser.add_argument("--dir", default="data/raw")
-    parser.add_argument("--login", default=None, help="Instagram username with a saved instaloader session")
-    parser.add_argument("--skip-download", action="store_true")
-    parser.add_argument("--dry-run", action="store_true")
-    parser.add_argument("--keep-suspect", action="store_true", help="store rows failing the Atwater check")
-    args = parser.parse_args()
-    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
-    ensure_selector_event_loop_policy()
-    asyncio.run(_run_cli(args))
-
-
-if __name__ == "__main__":
-    main()

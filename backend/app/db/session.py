@@ -86,6 +86,11 @@ async def init_db(engine: AsyncEngine) -> dict[str, bool]:
 
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        # Additive column for databases created before embedding tracking existed
+        # (create_all never alters existing tables; there is no Alembic yet).
+        await conn.execute(
+            text("ALTER TABLE nutrition_catalog ADD COLUMN IF NOT EXISTS embedding_model VARCHAR(255)")
+        )
         if has_trgm:
             await conn.execute(
                 text(

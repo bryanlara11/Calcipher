@@ -45,15 +45,60 @@ cd backend && .venv/Scripts/python -m pytest
 
 DB tests use `TEST_DATABASE_URL` if set, otherwise an embedded `pgserver` instance.
 
-## Ingest real posts
+## Load real @anongcaloriesnito data
 
-```bash
-cd backend
-.venv/Scripts/python -m app.services.ingestion_ocr --max-posts 20 --dry-run
-```
+Each stage reads the previous stage's files under `backend/data/` (git-ignored), so you scrape
+once and can re-run OCR or parsing as often as you like. Run these from `backend/`.
 
-Requires the Tesseract binary. Instagram throttles anonymous access; see the module docstring for
-`--login`. For academic use; respect Instagram's terms.
+1. Log in to Instagram once. This saves a session file; you type your password into instaloader
+   itself:
+
+   ```bash
+   .venv/Scripts/instaloader --login YOUR_IG_USERNAME
+   ```
+
+2. Scrape a small batch (posts already downloaded are skipped):
+
+   ```bash
+   .venv/Scripts/python -m app.ingest scrape --login YOUR_IG_USERNAME --max-new 15
+   ```
+
+3. OCR the images (needs Tesseract; cached per image):
+
+   ```bash
+   .venv/Scripts/python -m app.ingest ocr
+   ```
+
+4. Parse into review files:
+
+   ```bash
+   .venv/Scripts/python -m app.ingest parse
+   ```
+
+5. Open `data/review/reviewed.csv` in Excel. Fix values, set `action` to `load` or `skip`, and
+   `verified` to `yes` for rows you checked against the post. Re-running `parse` only appends
+   new posts; it never overwrites your edits.
+6. Validate, then load. Loading is all-or-nothing and also re-matches map pins to new brands:
+
+   ```bash
+   .venv/Scripts/python -m app.ingest load --dry-run
+   ```
+
+   ```bash
+   .venv/Scripts/python -m app.ingest load
+   ```
+
+7. Once real data is in, set `SEED_DEMO_ITEMS=false` in `.env` and remove the made-up demo items:
+
+   ```bash
+   .venv/Scripts/python -m app.db.seed --purge-demo-items
+   ```
+
+`python -m app.ingest status` shows counts for every stage. After switching `EMBEDDER_BACKEND`
+or `EMBEDDING_MODEL`, run `python -m app.ingest reembed`.
+
+Instagram's terms prohibit automated scraping: keep batches small and use the data for academic
+research only. Asking @anongcaloriesnito for permission or a data export is the safer route.
 
 ## Data honesty
 
