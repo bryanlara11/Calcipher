@@ -149,7 +149,7 @@ calories,protein_g,carbs_g,fat_g,is_suspect,warnings,price_php,price_source_url,
 3. Fix conflicting/ambiguous/Atwater warnings or retain `skip`. Suspect unverified rows cannot
    load. Set `verified=yes` only after a human checks evidence. It attests to the transcription,
    not independent scientific validation of the source. An intentionally unverified load remains
-   unverified in the database and is excluded from menus, map nutrition counts and chat recommendations.
+   unverified in the database and is excluded from chat recommendations and approved nutrition counts. Nearby can explicitly browse pending catalog locations and menus, with review labels.
 4. Optional prices require PHP (at most two decimals), an HTTP(S) `price_source_url`, and
    `verified=yes` after checking the same item/serving against that price source. Do not infer
    prices from calories, another portion, or a Places price category. Source prices may vary

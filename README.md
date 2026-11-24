@@ -28,7 +28,7 @@ RoBERTa model are retained. The LLM can select a retrieved record; factual text 
 Light, Dark and System modes persist locally. The supplied logo, simplified SVG icon, responsive
 Search, Nearby, Chat and Settings pages use cream/forest in Light mode and black with muted sage-green text in Dark mode. Maps keep their natural colors. The sidebar keeps the supplied logo without repeated brand text or navigation numbers. Settings uses separate appearance, locations and data cards, with technical setup collapsed. Nutrition and map filters open on demand; mobile uses bottom navigation. Search fields and chat history stay in memory across page changes. Inline PHP prices and slide
 references are review proposals; live Instagram retrieval is still unverified, not fixed by import.
-Current checks: 302 backend tests, 31 frontend tests, lint/build pass; npm audits report zero findings.
+Current checks: 304 backend tests, 32 frontend tests, lint/build pass; npm audits report zero findings.
 Use Node 22 LTS and npm 11.21.3 for the tested frontend setup (`npx --yes npm@11.21.3 ci`).
 
 ## Quick start on macOS
@@ -78,7 +78,7 @@ never returned to the browser. External map code loads only on the Nearby page. 
 remains visible; tiles are fetched normally from `tile.openstreetmap.org` without prefetching.
 
 The initial search radius is 1 km; expand it in **Nearby → Area & filters**. Pan and choose
-**Search this area** to move the search center. **Map** and **List** show only nearby restaurants linked to reviewed nutrition records in the database. Location-only listings are excluded; when no reviewed matches exist, the interface says so.
+**Search this area** to move the search center. **Map** and **List** show nearby branches of brands in the imported menu database. Pending records are available to browse with source links and clear review labels; meal recommendations still require approval. Unrelated location-only listings are excluded. 7-Eleven food stores are included alongside restaurant locations.
 Use **Settings** for appearance, data notes and Google configuration status.
 
 Overpass discovery keeps the existing 24-hour spatial cache, one-request semaphore, mirror fallback

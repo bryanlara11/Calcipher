@@ -102,14 +102,21 @@ WITH nearby AS (
       AND b.longitude BETWEEN :min_lng AND :max_lng
 ),
 catalog AS (
-    SELECT brand_slug, MIN(brand_name) AS brand_name, COUNT(*) AS item_count,
-           MIN(calories) AS min_calories, MAX(protein_g) AS max_protein_g
+    SELECT brand_slug, MIN(brand_name) AS brand_name,
+           COUNT(*) FILTER (WHERE is_verified) AS item_count,
+           COUNT(*) AS catalog_item_count,
+           COUNT(*) FILTER (WHERE NOT is_verified) AS pending_item_count,
+           MIN(calories) FILTER (WHERE is_verified) AS min_calories,
+           MAX(protein_g) FILTER (WHERE is_verified) AS max_protein_g
     FROM nutrition_catalog
-    WHERE is_verified
+    WHERE is_verified OR CAST(:include_pending AS boolean)
     GROUP BY brand_slug
 )
 SELECT nb.*, c.brand_name, COALESCE(c.item_count, 0) AS item_count, c.min_calories,
-       c.max_protein_g, (c.brand_slug IS NOT NULL) AS has_calorie_data
+       c.max_protein_g, (COALESCE(c.item_count, 0) > 0) AS has_calorie_data,
+       (c.brand_slug IS NOT NULL) AS has_catalog_data,
+       COALESCE(c.catalog_item_count, 0) AS catalog_item_count,
+       COALESCE(c.pending_item_count, 0) AS pending_item_count
 FROM nearby AS nb
 LEFT JOIN catalog AS c ON c.brand_slug = nb.matched_brand_slug
 WHERE nb.distance_km <= :radius_km
@@ -129,7 +136,7 @@ BRAND_ITEMS_SQL = text(
 SELECT id AS item_id, brand_name, food_item, calories, protein_g, carbs_g, fat_g, serving_size,
        is_verified, source_post_url, price_php, price_source_url, source_images, provenance
 FROM nutrition_catalog
-WHERE brand_slug = :brand_slug AND is_verified
+WHERE brand_slug = :brand_slug AND (is_verified OR CAST(:include_pending AS boolean))
 ORDER BY calories ASC
 LIMIT 100
 """
@@ -220,7 +227,7 @@ async def retrieve(
 
 async def nearby_branches(
     session: AsyncSession, *, lat: float, lng: float, radius_km: float, include_unmatched: bool,
-    places: list[dict] | None = None,
+    places: list[dict] | None = None, include_pending: bool = False,
 ) -> list[BranchPin]:
     min_lat, max_lat, min_lng, max_lng = bounding_box(lat, lng, radius_km)
     rows = (
@@ -235,6 +242,7 @@ async def nearby_branches(
                 "max_lng": max_lng,
                 "radius_km": radius_km,
                 "include_unmatched": include_unmatched,
+                "include_pending": include_pending,
                 "limit": MAP_PIN_LIMIT,
                 "places": json.dumps(places),
             },
@@ -255,6 +263,9 @@ async def nearby_branches(
             matched_brand_slug=r["matched_brand_slug"],
             brand_name=r["brand_name"],
             has_calorie_data=bool(r["has_calorie_data"]),
+            has_catalog_data=bool(r["has_catalog_data"]),
+            catalog_item_count=int(r["catalog_item_count"]),
+            pending_item_count=int(r["pending_item_count"]),
             item_count=int(r["item_count"]),
             min_calories=r["min_calories"],
             max_protein_g=_f(r["max_protein_g"]),
@@ -263,8 +274,8 @@ async def nearby_branches(
     ]
 
 
-async def brand_items(session: AsyncSession, brand_slug: str) -> list[CatalogItem]:
-    rows = (await session.execute(BRAND_ITEMS_SQL, {"brand_slug": brand_slug})).mappings().all()
+async def brand_items(session: AsyncSession, brand_slug: str, *, include_pending: bool = False) -> list[CatalogItem]:
+    rows = (await session.execute(BRAND_ITEMS_SQL, {"brand_slug": brand_slug, "include_pending": include_pending})).mappings().all()
     return [
         CatalogItem(
             item_id=str(r["item_id"]),
@@ -408,6 +419,7 @@ class HybridRagService:
 
     async def map_items(
         self, session: AsyncSession, *, lat: float, lng: float, radius_km: float, include_unmatched: bool, viewport=None,
+        include_pending: bool = False,
     ) -> tuple[list[BranchPin], DiscoveryTrace]:
         options = {"spread_map": True, "viewport": viewport} if isinstance(self.discovery, GooglePlacesDiscovery) else {}
         discovery = await self.discovery.ensure_branches(session, lat, lng, radius_km, **options)
@@ -417,6 +429,6 @@ class HybridRagService:
             await self.brands.refresh_if_stale(session)
         pins = await nearby_branches(
             session, lat=lat, lng=lng, radius_km=radius_km, include_unmatched=include_unmatched,
-            places=discovery.places,
+            places=discovery.places, include_pending=include_pending,
         )
         return pins, _trace(discovery, self.discovery)

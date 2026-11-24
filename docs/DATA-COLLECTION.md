@@ -123,8 +123,11 @@ nothing. Do not use example IDs as approval or alter the JSON after review.
 .venv/bin/python -m app.ingest status
 ```
 
-Pending records may be stored for review, but retrieval, map nutrition counts and brand menus
-all exclude them. Approval preserves community/estimated classification; it does not make a
+Pending records may be stored for review. Recommendation retrieval and default map/menu
+responses exclude them. Nearby explicitly requests `include_pending=true` to browse catalog
+locations and menu records with pending-review labels; it keeps `include_unmatched=false` so
+unrelated places stay hidden. `has_calorie_data` and approved nutrition counts still describe
+reviewed records only. Branch matching can link pending catalog brands without approving facts. Approval preserves community/estimated classification; it does not make a
 community source official. The load embeds records with the active model and rematches branches
 in the same transaction. API brand discovery refreshes within five minutes; restart after an
 operator-controlled import if an immediate refresh is needed.

@@ -136,7 +136,9 @@ an empty neighborhood would otherwise always look like a cache miss.
   source evidence. `max_price_php` is a bound SQL filter that excludes null prices and never relaxes.
 - **Verification is human-only:** rows become `is_verified` only through an actual human review
   action reflected in reviewed CSV or a dataset-hash-bound approval receipt. Pending records are
-  excluded from retrieval, map nutrition counts, menus and the brand matcher. Existing verified
+  excluded from recommendation retrieval and approved nutrition counts. Nearby may explicitly
+  browse pending catalog locations/menus with `include_pending=true`; these are labelled pending.
+  Location discovery matches all catalog brands, while query parsing keeps the reviewed registry. Existing verified
   corrections require explicit `load --allow-reviewed-updates` to change. Unverified writes never overwrite verified rows; demo seeding never overwrites
   scraped (`source_post_url` set) or verified rows; `--purge-demo-items` never deletes them.
 - **Branch matches are refreshed after brand changes:** `rematch_branches` only fills unmatched
@@ -159,6 +161,18 @@ an empty neighborhood would otherwise always look like a cache miss.
 - Frontend: Vite dev server on :5173 proxies `/api` → `http://localhost:8000`.
 
 ## 7. Current Implementation Status
+
+**2026-11-25 — automatic catalog location browsing**
+
+- Nearby shows matching locations for all imported catalog brands, including pending records.
+  Popups expose their source-backed menus, review labels and branch availability notes; the list
+  shows distances and source addresses or coordinates. Unrelated places remain hidden.
+- Added 7-Eleven convenience locations to Overpass discovery and versioned coverage bookkeeping
+  so an older restaurant-only response cannot hide them. Existing branch caches remain intact.
+- Verified 60 branches of all six pilot brands within 1 km of UP Manila, exposing all 36 distinct
+  pending menu records. No approval flags changed; recommendation retrieval remains approved-only.
+- 304 backend tests and 32 frontend tests, lint and production build pass.
+
 
 **2026-11-25 — branch summary and documentation cleanup**
 

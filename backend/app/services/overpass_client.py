@@ -40,14 +40,17 @@ GRID_CELL_DEG = 0.01  # ~1.1 km cells
 # `requested + GRID_PAD_M` around the snapped center covers every point inside the cell.
 GRID_PAD_M = 800
 _UPSERT_CHUNK = 500
+QUERY_CACHE_PREFIX = "food-v2:"
 
 # A single Overpass request in flight per process (OSM fair-use policy).
 OVERPASS_SEMAPHORE = asyncio.Semaphore(1)
 
 _QUERY_TEMPLATE = (
-    '[out:json][timeout:15];'
+    '[out:json][timeout:15];('
     'nwr["amenity"~"restaurant|fast_food|cafe"](around:{radius_m},{lat:.6f},{lng:.6f});'
-    "out center;"
+    'nwr["shop"="convenience"]["brand"~"7[ -]?eleven",i](around:{radius_m},{lat:.6f},{lng:.6f});'
+    'nwr["shop"="convenience"]["name"~"7[ -]?eleven",i](around:{radius_m},{lat:.6f},{lng:.6f});'
+    ");out center;"
 )
 
 
@@ -282,6 +285,7 @@ class BranchDiscoveryService:
         rows = await session.execute(
             select(OverpassFetchLog.center_lat, OverpassFetchLog.center_lng, OverpassFetchLog.radius_m).where(
                 OverpassFetchLog.fetched_at >= cutoff,
+                OverpassFetchLog.grid_key.startswith(QUERY_CACHE_PREFIX),
                 OverpassFetchLog.center_lat.between(min_lat, max_lat),
                 OverpassFetchLog.center_lng.between(min_lng, max_lng),
             )
@@ -316,6 +320,7 @@ class BranchDiscoveryService:
             if self._cooling_down():
                 return cooldown
             c_lat, c_lng, grid_key = snap_to_grid(lat, lng)
+            grid_key = QUERY_CACHE_PREFIX + grid_key
             fetch_radius = radius_m + GRID_PAD_M
             assert self.client is not None
             try:

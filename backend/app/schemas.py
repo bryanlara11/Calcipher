@@ -138,6 +138,9 @@ class BranchPin(BaseModel):
     matched_brand_slug: str | None
     brand_name: str | None
     has_calorie_data: bool
+    has_catalog_data: bool = False
+    catalog_item_count: int = 0
+    pending_item_count: int = 0
     item_count: int
     min_calories: int | None
     max_protein_g: float | None

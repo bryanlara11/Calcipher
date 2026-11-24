@@ -39,12 +39,13 @@ export function chat({ message, lat, lng, radiusKm, signal, provider }) {
   });
 }
 
-export function mapItems({ lat, lng, radiusKm, viewport, includeUnmatched, signal, provider }) {
+export function mapItems({ lat, lng, radiusKm, viewport, includeUnmatched, includePending = false, signal, provider }) {
   const params = new URLSearchParams({
     lat: lat.toFixed(6),
     lng: lng.toFixed(6),
     radius_km: String(radiusKm),
     include_unmatched: String(includeUnmatched),
+    include_pending: String(includePending),
   });
   if (viewport) viewport.split(",").forEach(value => params.append("viewport", value));
   return request(`/api/v1/map-items?${params}`, { signal, headers: { "X-CalCipher-Map-Provider": provider ?? "osm" } });
@@ -55,8 +56,8 @@ export function mapConfig({ signal } = {}) {
   return request(`/api/v1/map-config?browser_key_configured=${Boolean(browserMapsKey)}`, { signal });
 }
 
-export function brandItems(slug, { signal } = {}) {
-  return request(`/api/v1/brands/${encodeURIComponent(slug)}/items`, { signal });
+export function brandItems(slug, { signal, includePending = false } = {}) {
+  return request(`/api/v1/brands/${encodeURIComponent(slug)}/items?include_pending=${includePending}`, { signal });
 }
 
 export function health() {

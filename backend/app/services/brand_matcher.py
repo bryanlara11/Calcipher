@@ -191,19 +191,23 @@ class BrandMatcher:
         return None
 
 
-async def load_brand_matcher(session: AsyncSession) -> BrandMatcher:
+async def load_brand_matcher(session: AsyncSession, *, include_pending: bool = False) -> BrandMatcher:
     from app.models import NutritionCatalog
 
-    rows = await session.execute(select(NutritionCatalog.brand_slug).where(NutritionCatalog.is_verified.is_(True)).distinct())
+    query = select(NutritionCatalog.brand_slug).distinct()
+    if not include_pending:
+        query = query.where(NutritionCatalog.is_verified.is_(True))
+    rows = await session.execute(query)
     return BrandMatcher(rows.scalars().all())
 
 
 class BrandRegistry:
     """In-memory cache of the current BrandMatcher so request parsing needs no DB round trip."""
 
-    def __init__(self, matcher: BrandMatcher | None = None, *, max_age_s: float = 300.0) -> None:
+    def __init__(self, matcher: BrandMatcher | None = None, *, max_age_s: float = 300.0, include_pending: bool = False) -> None:
         self._matcher = matcher or BrandMatcher([])
         self.max_age_s = max_age_s
+        self.include_pending = include_pending
         self._loaded_at = time.monotonic() if matcher is not None else float("-inf")
 
     @property
@@ -211,7 +215,7 @@ class BrandRegistry:
         return self._matcher
 
     async def refresh(self, session: AsyncSession) -> BrandMatcher:
-        self._matcher = await load_brand_matcher(session)
+        self._matcher = await load_brand_matcher(session, include_pending=self.include_pending)
         self._loaded_at = time.monotonic()
         return self._matcher
 

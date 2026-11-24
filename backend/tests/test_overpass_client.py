@@ -89,9 +89,11 @@ def make_client(script) -> tuple[OverpassClient, Recorder]:
 
 def test_build_query_matches_contract():
     assert build_query(14.5785, 120.985, 3000) == (
-        '[out:json][timeout:15];'
+        '[out:json][timeout:15];('
         'nwr["amenity"~"restaurant|fast_food|cafe"](around:3000,14.578500,120.985000);'
-        "out center;"
+        'nwr["shop"="convenience"]["brand"~"7[ -]?eleven",i](around:3000,14.578500,120.985000);'
+        'nwr["shop"="convenience"]["name"~"7[ -]?eleven",i](around:3000,14.578500,120.985000);'
+        ");out center;"
     )
 
 
@@ -272,12 +274,25 @@ async def test_second_request_in_same_area_is_a_cache_hit(db_session):
 async def test_expired_cache_triggers_refetch(db_session):
     service, rec = make_service({MIRRORS[0]: _ok})
     db_session.add(OverpassFetchLog(
-        grid_key="x", center_lat=UPM_LAT, center_lng=UPM_LNG, radius_m=5000, element_count=0,
+        grid_key="food-v2:x", center_lat=UPM_LAT, center_lng=UPM_LNG, radius_m=5000, element_count=0,
         fetched_at=datetime.now(timezone.utc) - timedelta(hours=25),
     ))
     await db_session.commit()
     result = await service.ensure_branches(db_session, UPM_LAT, UPM_LNG, 1.0)
     assert result.source == "live" and len(rec.requests) == 1
+
+
+@pytest.mark.db
+async def test_old_restaurant_only_coverage_refetches_to_include_catalog_food_stores(db_session):
+    service, rec = make_service({MIRRORS[0]: _ok})
+    db_session.add(OverpassFetchLog(
+        grid_key="legacy-restaurants", center_lat=UPM_LAT, center_lng=UPM_LNG,
+        radius_m=5000, element_count=0, fetched_at=datetime.now(timezone.utc),
+    ))
+    await db_session.commit()
+    assert (await service.ensure_branches(db_session, UPM_LAT, UPM_LNG, 1)).source == "live"
+    assert (await service.ensure_branches(db_session, UPM_LAT, UPM_LNG, 1)).source == "cache"
+    assert len(rec.requests) == 1
 
 
 @pytest.mark.db

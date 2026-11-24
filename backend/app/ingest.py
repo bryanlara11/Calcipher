@@ -741,7 +741,7 @@ async def load_reviewed(path: Path, *, dry_run: bool = False, allow_verified_upd
         result["written"] = await upsert_catalog_items(
             session, reviewed.items, get_embedder(), verified=reviewed.verified, commit=False, allow_verified_updates=allow_verified_updates
         )
-        result["branches"] = await rematch_branches(session, await load_brand_matcher(session), commit=False)
+        result["branches"] = await rematch_branches(session, await load_brand_matcher(session, include_pending=True), commit=False)
         await session.commit()
     return result
 

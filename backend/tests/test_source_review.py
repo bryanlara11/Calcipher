@@ -15,7 +15,7 @@ from app.services.brand_matcher import load_brand_matcher
 from app.services.embedder import HashingEmbedder
 from app.services.hybrid_rag import brand_items, nearby_branches, retrieve
 from app.services.source_review import prepare_review
-from tests.conftest import UPM_LAT, UPM_LNG, add_branch
+from tests.conftest import UPM_LAT, UPM_LNG, add_branch, add_item
 from tests.test_ingest_pipeline import _use_test_db
 
 
@@ -206,3 +206,30 @@ def test_instaloader_metadata_failure_stops_instead_of_crashing(tmp_path,monkeyp
 def test_source_parser_rejects_cross_restaurant_misattribution():
     with pytest.raises(ValueError,match="brand disagrees"):
         parse_entry(_page(),"https://worththecals.com/calories/test",brand="Unrelated Restaurant",record_id="T",collected_at="2026-11-25",permission_reference="synthetic")
+
+
+@pytest.mark.db
+async def test_pending_catalog_browsing_links_branches_without_approving_recommendations(db_session):
+    from app.db.maintenance import rematch_branches
+    await add_item(db_session, brand_name="Synthetic Pending", brand_slug="synthetic pending",
+                   food_item="Pending bowl", calories=420, verified=False)
+    await add_branch(db_session, osm_id=901, poi_name="Synthetic Pending - Taft", lat=UPM_LAT, lng=UPM_LNG, slug=None)
+    await add_branch(db_session, osm_id=902, poi_name="Unrelated Shop", lat=UPM_LAT, lng=UPM_LNG, slug=None)
+    assert len(await load_brand_matcher(db_session)) == 0
+    await rematch_branches(db_session, await load_brand_matcher(db_session, include_pending=True))
+    options = dict(lat=UPM_LAT, lng=UPM_LNG, radius_km=1, include_unmatched=False)
+    assert await nearby_branches(db_session, **options) == []
+    for places in [None, [dict(place_id="synthetic-place", poi_name="Synthetic Pending - Test", latitude=UPM_LAT,
+                               longitude=UPM_LNG, matched_brand_slug="synthetic pending", attributions=[])]]:
+        pins = await nearby_branches(db_session, **options, places=places, include_pending=True)
+        assert len(pins) == 1 and pins[0].has_catalog_data
+        assert not pins[0].has_calorie_data and pins[0].item_count == 0
+        assert pins[0].pending_item_count == pins[0].catalog_item_count == 1
+        assert pins[0].min_calories is None
+        found = await retrieve(db_session, lat=UPM_LAT, lng=UPM_LNG, places=places,
+                               constraints=SearchConstraints(max_distance_km=1), query_vec=HashingEmbedder().embed_one("bowl"))
+        assert found.items == []
+    assert await brand_items(db_session, "synthetic pending") == []
+    browsing = await brand_items(db_session, "synthetic pending", include_pending=True)
+    assert len(browsing) == 1 and not browsing[0].is_verified
+    assert (await db_session.execute(select(NutritionCatalog.is_verified))).scalar_one() is False

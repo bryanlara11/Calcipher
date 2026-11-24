@@ -27,7 +27,7 @@ from app.schemas import (
 )
 from app.db.maintenance import count_stale_embeddings
 from app.security import MacroPhysicsError, SlidingWindowRateLimiter
-from app.services.brand_matcher import BrandRegistry, normalize_brand
+from app.services.brand_matcher import BrandRegistry, load_brand_matcher, normalize_brand
 from app.services.embedder import get_embedder
 from app.services.generator import GroundedGenerator
 from app.services.hybrid_rag import HybridRagService, brand_items
@@ -42,6 +42,7 @@ RATE_LIMITED_PREFIXES = ("/api/v1/chat", "/api/v1/map-items", "/api/v1/brands")
 
 
 def build_rag_service(settings: Settings, brands: BrandRegistry, provider: str = "google") -> HybridRagService:
+    location_brands = BrandRegistry(include_pending=True)
     llm: LLMClient | None = None
     if settings.gemini_api_key is not None:
         try:
@@ -54,13 +55,13 @@ def build_rag_service(settings: Settings, brands: BrandRegistry, provider: str =
         discovery = BranchDiscoveryService(
             OverpassClient(settings.overpass_urls, user_agent=settings.overpass_user_agent,
                            timeout_s=settings.overpass_timeout_s),
-            brands.refresh_if_stale, ttl_hours=settings.overpass_cache_ttl_hours,
+            location_brands.refresh_if_stale, ttl_hours=settings.overpass_cache_ttl_hours,
             max_radius_m=settings.overpass_max_radius_m, enabled=settings.overpass_enabled,
             failure_cooldown_s=settings.overpass_failure_cooldown_s,
         )
     else:
         discovery = GooglePlacesDiscovery(
-            settings.google_places_api_key, brands.refresh_if_stale,
+            settings.google_places_api_key, location_brands.refresh_if_stale,
             cache_ttl_s=settings.places_cache_ttl_s, state_path=settings.places_state_path,
         )
     return HybridRagService(
@@ -80,6 +81,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     brands = BrandRegistry()
     async with get_sessionmaker()() as session:
         await brands.refresh(session)
+        from app.db.maintenance import rematch_branches
+        await rematch_branches(session, await load_brand_matcher(session, include_pending=True))
         app.state.osm_rag = build_rag_service(settings, brands, "osm")
         app.state.rag = (build_rag_service(settings, brands) if settings.google_places_api_key
                          else app.state.osm_rag)
@@ -235,6 +238,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         lng: Annotated[float, Query(ge=PH_LNG_MIN, le=PH_LNG_MAX)],
         radius_km: Annotated[float, Query(gt=0, le=MAX_DISTANCE_KM)] = 2.0,
         include_unmatched: bool = True,
+        include_pending: bool = False,
         viewport: Annotated[list[float] | None, Query(min_length=4, max_length=4)] = None,
     ) -> MapItemsResponse:
         if viewport is not None:
@@ -243,6 +247,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 raise HTTPException(422, "Invalid map viewport")
         pins, discovery = await rag.map_items(
             session, lat=lat, lng=lng, radius_km=radius_km, include_unmatched=include_unmatched, viewport=viewport,
+            include_pending=include_pending,
         )
         matched = sum(1 for p in pins if p.has_calorie_data)
         return MapItemsResponse(
@@ -256,10 +261,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.get("/api/v1/brands/{brand_slug}/items", response_model=BrandItemsResponse)
     async def items_for_brand(
-        session: SessionDep, brand_slug: Annotated[str, Path(min_length=1, max_length=255)]
+        session: SessionDep, brand_slug: Annotated[str, Path(min_length=1, max_length=255)],
+        include_pending: bool = False,
     ) -> BrandItemsResponse:
         slug = normalize_brand(brand_slug)
-        return BrandItemsResponse(brand_slug=slug, items=await brand_items(session, slug))
+        return BrandItemsResponse(brand_slug=slug, items=await brand_items(session, slug, include_pending=include_pending))
 
     return app
 

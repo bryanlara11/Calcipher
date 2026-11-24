@@ -191,18 +191,23 @@ describe("meal search and cards", () => {
   it("requests only catalog matches and excludes location-only places from Nearby", async () => {
     fetch.mockImplementation(async url => response(url.includes("map-config") ? { provider: "osm" } : {
       branches: [
-        { osm_type: "node", osm_id: 1, poi_name: "Synthetic catalog branch", distance_km: .2, has_calorie_data: true, item_count: 2 },
+        { osm_type: "node", osm_id: 1, poi_name: "Synthetic catalog branch", distance_km: .2, has_calorie_data: true, has_catalog_data: true, item_count: 2, catalog_item_count: 2, latitude: 14.5785, longitude: 120.985, address_hint: "Synthetic Taft address" },
         { osm_type: "node", osm_id: 2, poi_name: "Synthetic location-only branch", distance_km: .3, has_calorie_data: false, item_count: 0 },
+        { osm_type: "node", osm_id: 3, poi_name: "Synthetic pending branch", distance_km: .4, has_calorie_data: false, has_catalog_data: true, catalog_item_count: 6, pending_item_count: 6, latitude: 14.5785, longitude: 120.985 },
       ], discovery: { source: "cache", provider: "osm", error: null },
     }));
     render(<App />);
     await userEvent.click(screen.getByRole("link", { name: "Nearby" }));
     await userEvent.click(screen.getByRole("button", { name: "Report test viewport" }));
-    await screen.findByText("1 restaurant with nutrition nearby");
+    await screen.findByText("2 catalog locations nearby");
     const url = new URL(fetch.mock.calls.find(([url]) => url.includes("map-items"))[0], "http://test");
     expect(url.searchParams.get("include_unmatched")).toBe("false");
+    expect(url.searchParams.get("include_pending")).toBe("true");
     await userEvent.click(screen.getByRole("button", { name: "List", exact: true }));
     expect(screen.getByText("Synthetic catalog branch")).toBeTruthy();
+    expect(screen.getByText("Synthetic pending branch")).toBeTruthy();
+    expect(screen.getByText("Synthetic Taft address")).toBeTruthy();
+    expect(screen.getByText(/6 menu records · 6 pending review/)).toBeTruthy();
     expect(screen.queryByText("Synthetic location-only branch")).toBeNull();
     expect(screen.queryByText("No nutrition yet")).toBeNull();
     await userEvent.click(screen.getByRole("button", { name: "Area & filters" }));
@@ -235,7 +240,18 @@ describe("meal search and cards", () => {
 });
 
 describe("map identities", () => {
-  it("does not fetch a pending restaurant menu or imply it is absent from the catalog", () => {
+  it("browses pending menu records with source links without claiming review", async () => {
+    fetch.mockImplementation(async () => response({ items: [{ ...sample, is_verified: false,
+      source_post_url: "https://example.test/pending", serving_size: null, source_classification: "community_reported" }] }));
+    render(<BranchPopup pin={{ poi_name: "Synthetic pending", distance_km: .2, has_catalog_data: true,
+      has_calorie_data: false, matched_brand_slug: "synthetic", brand_name: "Synthetic", catalog_item_count: 1, pending_item_count: 1, item_count: 0 }} />);
+    await screen.findByRole("link", { name: "Nutrition source" });
+    expect(fetch.mock.calls[0][0]).toContain("include_pending=true");
+    expect(screen.getByText(/Pending values are not used in meal recommendations/)).toBeTruthy();
+    expect(screen.getByText(/Serving size unavailable · Pending review/)).toBeTruthy();
+    expect(screen.queryByText(/Checked against source/)).toBeNull();
+  });
+  it("does not fetch a location-only menu or imply it is absent from the catalog", () => {
     render(<BranchPopup pin={{ poi_name: "Synthetic branch", distance_km: .2, has_calorie_data: false }} />);
     expect(screen.getByText("No reviewed calorie data is available for this restaurant yet.")).toBeTruthy();
     expect(fetch).not.toHaveBeenCalled();
