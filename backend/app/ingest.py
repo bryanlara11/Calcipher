@@ -1,7 +1,8 @@
 """Staged @anongcaloriesnito ingestion pipeline. Each stage reads the previous stage's files
 under `backend/data/` and can be re-run on its own:
 
-    1. scrape   Instagram -> data/raw/<shortcode>*.jpg + <shortcode>.meta.json   (network)
+    1. import-local authorized manifest + images -> data/raw (offline, recommended)
+       scrape   authorized Instagram access -> data/raw (optional network alternative)
     2. ocr      data/raw images -> data/ocr/<image>.json (cached by image hash + engine)
     3. parse    meta + OCR text -> data/review/parsed.csv (always rewritten) and appends
                 posts not yet reviewed to data/review/reviewed.csv (yours to edit)
@@ -17,9 +18,10 @@ under `backend/data/` and can be re-run on its own:
     python -m app.ingest reembed          # after changing EMBEDDER_BACKEND / EMBEDDING_MODEL
     python -m app.ingest status
 
-Instagram throttles anonymous access and its terms prohibit automated scraping; log in once with
-`instaloader --login <user>`, keep runs small, and use the data for academic research only.
-To re-parse a post you already reviewed, delete its rows from reviewed.csv and run `parse`.
+Use owner-supplied originals or an authorized export whenever possible. Academic use and a saved
+login session do not grant permission to collect data. Stop on platform refusals; no evasion.
+Parse regenerates parsed.csv as proposals while preserving reviewed.csv. To revisit a reviewed
+post, compare the new proposals and edit your existing review rows after making a backup.
 """
 
 from __future__ import annotations
@@ -31,13 +33,17 @@ import hashlib
 import json
 import logging
 import random
+import re
+import shutil
 import time
 from collections.abc import Callable, Iterable, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
+from decimal import Decimal
 from pathlib import Path
 from typing import Any, Protocol
+from urllib.parse import urlparse
 
 from app.config import BACKEND_DIR, get_settings
 from app.services.brand_matcher import BrandMatcher, normalize_brand
@@ -45,8 +51,10 @@ from app.services.ingestion_ocr import (
     DEFAULT_PROFILE,
     KNOWN_BRAND_NAMES,
     MAX_CALORIES,
+    PREPROCESS_VERSION,
     UNKNOWN_SERVING,
     ParsedNutrition,
+    macro_energy_consistent,
     parse_nutrition_text,
 )
 
@@ -57,6 +65,8 @@ IMAGE_SUFFIXES = (".jpg", ".jpeg", ".png", ".webp")
 REVIEW_COLUMNS = [
     "action", "verified", "shortcode", "source_post_url", "brand_name", "brand_slug", "food_item",
     "serving_size", "calories", "protein_g", "carbs_g", "fat_g", "is_suspect", "warnings",
+    "price_php", "price_source_url",
+    "source_images",
 ]
 _YES = {"yes", "y", "true", "1"}
 _NO = {"no", "n", "false", "0", ""}
@@ -101,15 +111,20 @@ class PostMeta:
     caption: str
     images: list[str]
     is_video: bool = False
+    source_type: str = "instagram"
+    source_reference: str | None = None
 
     @staticmethod
     def path(raw_dir: Path, shortcode: str) -> Path:
         return raw_dir / f"{shortcode}.meta.json"
 
     def save(self, raw_dir: Path) -> None:
-        self.path(raw_dir, self.shortcode).write_text(
+        path = self.path(raw_dir, self.shortcode)
+        temporary = path.with_suffix(".json.tmp")
+        temporary.write_text(
             json.dumps(asdict(self), ensure_ascii=False, indent=2), encoding="utf-8"
         )
+        temporary.replace(path)
 
     @classmethod
     def load(cls, path: Path) -> PostMeta:
@@ -122,10 +137,89 @@ def known_shortcodes(raw_dir: Path) -> set[str]:
 
 def post_images(raw_dir: Path, shortcode: str) -> list[str]:
     # Instaloader names single images "<sc>.jpg" and carousel slides "<sc>_1.jpg", "<sc>_2.jpg"...
-    return sorted(
+    return sorted((
         p.name for p in raw_dir.iterdir()
-        if p.suffix.lower() in IMAGE_SUFFIXES and (p.stem == shortcode or p.stem.startswith(f"{shortcode}_"))
-    )
+        if p.suffix.lower() in IMAGE_SUFFIXES
+        and (p.stem == shortcode or re.fullmatch(re.escape(shortcode) + r"_\d+", p.stem))
+    ), key=lambda name: [int(part) if part.isdigit() else part for part in re.split(r"(\d+)", name)])
+
+
+def import_local(dirs: DataDirs, manifest: Path) -> dict[str, int]:
+    """Import an owner-supplied manifest. Validate the entire batch before copying files.
+
+    No network, implicit image discovery, or modification of previously imported posts.
+    Images are ordered explicitly in the manifest and metadata is the completion marker.
+    """
+    from PIL import Image
+
+    manifest = manifest.resolve()
+    document = json.loads(manifest.read_text(encoding="utf-8-sig"))
+    if not isinstance(document, dict) or not isinstance(document.get("posts"), list):
+        raise ValueError("manifest must contain a posts array")
+    pending: list[tuple[PostMeta, list[Path]]] = []
+    seen: set[str] = set()
+    skipped = 0
+    for entry in document["posts"]:
+        if not isinstance(entry, dict):
+            raise ValueError("each post must be an object")
+        shortcode = entry.get("shortcode", "")
+        if not isinstance(shortcode, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,100}", shortcode):
+            raise ValueError("shortcode must contain 1..100 letters, digits, underscores or hyphens")
+        if shortcode in seen:
+            raise ValueError(f"duplicate shortcode in manifest: {shortcode}")
+        seen.add(shortcode)
+        images = entry.get("images")
+        if not isinstance(images, list) or not images:
+            raise ValueError(f"{shortcode}: images must be a nonempty ordered array")
+        sources = []
+        names = []
+        for index, image in enumerate(images, start=1):
+            if not isinstance(image, str):
+                raise ValueError(f"{shortcode}: image paths must be strings")
+            source = (manifest.parent / image).resolve()
+            if not source.is_relative_to(manifest.parent) or source.suffix.lower() not in IMAGE_SUFFIXES:
+                raise ValueError(f"{shortcode}: image must be inside the manifest folder with a supported extension")
+            with Image.open(source) as opened:
+                opened.verify()
+            sources.append(source)
+            names.append(f"{shortcode}_{index}{source.suffix.lower()}")
+        url = entry.get("url", "")
+        if not isinstance(url, str) or not url.strip():
+            raise ValueError(f"{shortcode}: url is required (post URL or another provenance reference)")
+        for key in ("caption", "profile", "date_utc", "source_reference"):
+            if entry.get(key) is not None and not isinstance(entry[key], str):
+                raise ValueError(f"{shortcode}: {key} must be text")
+        if entry.get("date_utc"):
+            datetime.fromisoformat(entry["date_utc"].replace("Z", "+00:00"))
+        meta = PostMeta(shortcode, url, entry.get("profile") or DEFAULT_PROFILE,
+                        entry.get("date_utc"), entry.get("caption") or "", names,
+                        source_type="local", source_reference=entry.get("source_reference"))
+        existing = PostMeta.path(dirs.raw, shortcode)
+        if existing.exists():
+            old = PostMeta.load(existing)
+            unchanged = asdict(old) == asdict(meta) and all(
+                (dirs.raw / name).is_file() and _sha256(dirs.raw / name) == _sha256(source)
+                for source, name in zip(sources, names, strict=True)
+            )
+            if not unchanged:
+                raise ValueError(f"{shortcode}: conflicts with an existing post; existing data was preserved")
+            skipped += 1
+            continue
+        for source, name in zip(sources, names, strict=True):
+            target = dirs.raw / name
+            if target.exists() and _sha256(target) != _sha256(source):
+                raise ValueError(f"{shortcode}: conflicts with existing image {name}")
+        pending.append((meta, sources))
+    dirs.raw.mkdir(parents=True, exist_ok=True)
+    for meta, sources in pending:
+        for source, name in zip(sources, meta.images, strict=True):
+            target = dirs.raw / name
+            temporary = target.with_suffix(target.suffix + ".tmp")
+            shutil.copyfile(source, temporary)
+            temporary.replace(target)
+        meta.save(dirs.raw)
+    return {"imported_posts": len(pending), "skipped_known": skipped,
+            "imported_images": sum(len(sources) for _, sources in pending)}
 
 
 class PostLike(Protocol):
@@ -157,7 +251,11 @@ def scrape_posts(
     """Download posts not seen before. The meta file is written LAST, so a post interrupted
     mid-download has no meta and is retried on the next run."""
     raw_dir.mkdir(parents=True, exist_ok=True)
-    known = known_shortcodes(raw_dir)
+    known = {
+        sc for sc in known_shortcodes(raw_dir)
+        if (meta := PostMeta.load(PostMeta.path(raw_dir, sc))).images
+        and all((raw_dir / name).is_file() for name in meta.images)
+    }
     summary = ScrapeSummary()
     if max_new <= 0:
         return summary
@@ -168,21 +266,31 @@ def scrape_posts(
                 continue
             try:
                 download(post)
+                images = post_images(raw_dir, post.shortcode)
+                expected = getattr(post, "mediacount", max(1, len(images)))
+                if len(images) != expected:
+                    raise ValueError(f"incomplete download: expected {expected} images, found {len(images)}")
+                from PIL import Image
+                for name in images:
+                    with Image.open(raw_dir / name) as opened:
+                        opened.verify()
+                meta = PostMeta(
+                    shortcode=post.shortcode,
+                    url=f"https://www.instagram.com/p/{post.shortcode}/",
+                    profile=profile,
+                    date_utc=post.date_utc.isoformat() if post.date_utc else None,
+                    caption=post.caption or "",
+                    images=images,
+                    is_video=bool(post.is_video),
+                )
             except fatal:
                 raise
             except Exception as exc:
                 logger.warning("download failed for %s: %s", post.shortcode, exc)
                 summary.failed.append(post.shortcode)
                 continue
-            PostMeta(
-                shortcode=post.shortcode,
-                url=f"https://www.instagram.com/p/{post.shortcode}/",
-                profile=profile,
-                date_utc=post.date_utc.isoformat() if post.date_utc else None,
-                caption=post.caption or "",
-                images=post_images(raw_dir, post.shortcode),
-                is_video=bool(post.is_video),
-            ).save(raw_dir)
+            meta.save(raw_dir)
+            known.add(post.shortcode)
             summary.new_posts += 1
             logger.info("scraped %s (%d new)", post.shortcode, summary.new_posts)
             if summary.new_posts >= max_new:
@@ -193,7 +301,8 @@ def scrape_posts(
     return summary
 
 
-def scrape(dirs: DataDirs, *, profile: str, max_new: int, login: str | None, sleep_s: float) -> ScrapeSummary:
+def scrape(dirs: DataDirs, *, profile: str, max_new: int, login: str | None, sleep_s: float,
+           session_file: Path | None = None) -> ScrapeSummary:
     import instaloader
     from instaloader import exceptions as ie
 
@@ -209,11 +318,22 @@ def scrape(dirs: DataDirs, *, profile: str, max_new: int, login: str | None, sle
         post_metadata_txt_pattern="",
         quiet=True,
         fatal_status_codes=[401, 429],
-        max_connection_attempts=3,
+        max_connection_attempts=1,
         request_timeout=30.0,
     )
-    if login:
-        loader.load_session_from_file(login)
+    fatal = (ie.AbortDownloadException, ie.TooManyRequestsException, ie.LoginRequiredException,
+             ie.ConnectionException, ie.BadCredentialsException)
+    if max_new <= 0:
+        return ScrapeSummary()
+    try:
+        if session_file and not login:
+            raise ValueError("--session-file requires --login")
+        if login:
+            loader.load_session_from_file(login, str(session_file) if session_file else None)
+            if loader.test_login() != login:
+                return ScrapeSummary(stopped_early="authentication_failed: saved session is expired or belongs to another account")
+    except (OSError, ValueError, *fatal) as exc:
+        return ScrapeSummary(stopped_early=f"session_error: {type(exc).__name__}; check your own session or use local import")
 
     def posts():
         prof = instaloader.Profile.from_username(loader.context, profile)
@@ -226,7 +346,7 @@ def scrape(dirs: DataDirs, *, profile: str, max_new: int, login: str | None, sle
         profile=profile,
         max_new=max_new,
         sleep_s=sleep_s,
-        fatal=(ie.AbortDownloadException, ie.TooManyRequestsException, ie.LoginRequiredException, ie.ConnectionException),
+        fatal=fatal,
     )
 
 
@@ -250,11 +370,22 @@ def ocr_cache_path(ocr_dir: Path, image_name: str) -> Path:
     return ocr_dir / f"{image_name}.json"
 
 
-def read_ocr_text(ocr_dir: Path, image_name: str) -> str | None:
+def read_ocr_text(ocr_dir: Path, image_name: str, raw_dir: Path | None = None) -> str | None:
     path = ocr_cache_path(ocr_dir, image_name)
     if not path.is_file():
         return None
-    return json.loads(path.read_text(encoding="utf-8")).get("text")
+    try:
+        cached = json.loads(path.read_text(encoding="utf-8"))
+        engine = cached.get("engine", "")
+        if isinstance(engine, str) and engine.startswith("tesseract-") and not engine.endswith(f"|pre{PREPROCESS_VERSION}"):
+            return None
+        if raw_dir is not None and (not (raw_dir / image_name).is_file()
+                                   or cached.get("sha256") != _sha256(raw_dir / image_name)):
+            return None
+        text = cached.get("text")
+        return text if isinstance(text, str) else None
+    except (ValueError, OSError, AttributeError):
+        return None
 
 
 def run_ocr(
@@ -274,11 +405,17 @@ def run_ocr(
         digest = _sha256(image)
         cache = ocr_cache_path(dirs.ocr, image.name)
         if not force and cache.is_file():
-            cached = json.loads(cache.read_text(encoding="utf-8"))
-            if cached.get("sha256") == digest and cached.get("engine") == engine_id:
+            try:
+                cached = json.loads(cache.read_text(encoding="utf-8"))
+            except ValueError:
+                cached = {}
+            if (isinstance(cached, dict) and cached.get("sha256") == digest
+                    and cached.get("engine") == engine_id and isinstance(cached.get("text"), str)):
                 summary.cached += 1
                 continue
         todo.append((image, digest))
+        # A failed refresh must not leave an obsolete result available to parse.
+        cache.unlink(missing_ok=True)
 
     def work(item: tuple[Path, str]) -> tuple[Path, str, str | None, str | None]:
         image, digest = item
@@ -293,11 +430,14 @@ def run_ocr(
                 logger.warning("OCR failed for %s: %s", image.name, error)
                 summary.failed.append(image.name)
                 continue
-            ocr_cache_path(dirs.ocr, image.name).write_text(
+            cache = ocr_cache_path(dirs.ocr, image.name)
+            temporary = cache.with_suffix(".json.tmp")
+            temporary.write_text(
                 json.dumps({"image": image.name, "sha256": digest, "engine": engine_id, "text": text},
                            ensure_ascii=False, indent=2),
                 encoding="utf-8",
             )
+            temporary.replace(cache)
             summary.processed += 1
     return summary
 
@@ -328,9 +468,13 @@ def write_csv_rows(path: Path, rows: Sequence[dict[str, Any]], *, append: bool =
     path.parent.mkdir(parents=True, exist_ok=True)
     exists = path.is_file() and path.stat().st_size > 0
     # utf-8-sig so Excel shows ñ / é correctly; reading uses utf-8-sig too.
+    columns = REVIEW_COLUMNS
+    if append and exists:
+        with path.open(encoding="utf-8-sig", newline="") as existing:
+            columns = next(csv.reader(existing))
     with path.open("a" if append else "w", encoding="utf-8-sig" if not (append and exists) else "utf-8",
                    newline="") as fh:
-        writer = csv.DictWriter(fh, fieldnames=REVIEW_COLUMNS, extrasaction="ignore")
+        writer = csv.DictWriter(fh, fieldnames=columns, extrasaction="ignore")
         if not (append and exists):
             writer.writeheader()
         writer.writerows(rows)
@@ -344,7 +488,7 @@ def _fmt_num(value: float | None) -> str:
 
 def _item_row(shortcode: str, item: ParsedNutrition) -> dict[str, str]:
     return {
-        "action": "skip" if item.is_suspect else "load",
+        "action": "skip",  # a human must opt in to loading, even for plausible OCR
         "verified": "no",
         "shortcode": shortcode,
         "source_post_url": item.source_post_url or "",
@@ -358,6 +502,9 @@ def _item_row(shortcode: str, item: ParsedNutrition) -> dict[str, str]:
         "fat_g": _fmt_num(item.fat_g),
         "is_suspect": "yes" if item.is_suspect else "no",
         "warnings": ";".join(item.warnings),
+        "price_php": _fmt_num(item.price_php),
+        "price_source_url": item.price_source_url or "",
+        "source_images": ";".join(item.source_images),
     }
 
 
@@ -396,15 +543,37 @@ def run_parse(dirs: DataDirs) -> ParseSummary:
         summary.posts += 1
         texts = []
         for image in meta.images:
-            text = read_ocr_text(dirs.ocr, image)
+            text = read_ocr_text(dirs.ocr, image, dirs.raw)
             if text is None:
                 if meta.shortcode not in summary.posts_missing_ocr:
                     summary.posts_missing_ocr.append(meta.shortcode)
             else:
-                texts.append(text)
-        items = parse_nutrition_text(
-            meta.caption, "\n".join(texts), matcher, source_post_url=meta.url, display_names=names
-        )
+                texts.append((image, text))
+        # Parse slides separately: state (item name, macros and serving) must never leak
+        # across image boundaries. Caption values are parsed independently as well.
+        items = []
+        for image, text in [*texts, (None, "")]:
+            parsed_items = parse_nutrition_text(
+                meta.caption, text, matcher, source_post_url=meta.url, display_names=names,
+                include_caption_values=not text,
+            )
+            for item in parsed_items:
+                item.source_images = [image] if image else []
+            items.extend(parsed_items)
+        unique: dict[tuple[str, str, str], ParsedNutrition] = {}
+        for item in items:
+            key = (item.brand_slug, item.food_item.casefold(), item.serving_size.casefold())
+            if key in unique:
+                old = unique[key]
+                if any(getattr(old, k) != getattr(item, k)
+                       for k in ("calories", "protein_g", "carbs_g", "fat_g", "price_php")):
+                    old.is_suspect = True
+                    if "conflicting_source_values" not in old.warnings:
+                        old.warnings.append("conflicting_source_values")
+                old.source_images = list(dict.fromkeys([*old.source_images, *item.source_images]))
+            else:
+                unique[key] = item
+        items = list(unique.values())
         if items:
             rows = [_item_row(meta.shortcode, it) for it in items]
             summary.items += len(items)
@@ -412,7 +581,7 @@ def run_parse(dirs: DataDirs) -> ParseSummary:
             summary.posts_without_items.append(meta.shortcode)
             rows = [_empty_row(meta, "no_items_parsed")]
         all_rows.extend(rows)
-        if meta.shortcode not in reviewed_posts:
+        if meta.shortcode not in reviewed_posts and meta.shortcode not in summary.posts_missing_ocr:
             new_rows.extend(rows)
             summary.appended_posts += 1
 
@@ -437,8 +606,12 @@ class ReviewedItems:
 
 
 def _parse_number(raw: str, field_name: str, line: int, errors: list[str], *, lo: float, hi: float,
-                  integer: bool = False, required: bool = False) -> float | None:
-    raw = raw.replace(",", "").strip()
+                  integer: bool = False, required: bool = False, decimal_places: int | None = None) -> float | None:
+    raw = raw.strip()
+    if "," in raw and not re.fullmatch(r"\d{1,3}(?:,\d{3})+(?:\.\d+)?", raw):
+        errors.append(f"row {line}: {field_name} has ambiguous comma formatting; use a dot for decimals")
+        return None
+    raw = raw.replace(",", "")
     if not raw:
         if required:
             errors.append(f"row {line}: {field_name} is required")
@@ -454,12 +627,21 @@ def _parse_number(raw: str, field_name: str, line: int, errors: list[str], *, lo
     if integer and not value.is_integer():
         errors.append(f"row {line}: {field_name} {raw} must be a whole number")
         return None
+    if decimal_places is not None and Decimal(raw).normalize().as_tuple().exponent < -decimal_places:
+        errors.append(f"row {line}: {field_name} must have at most {decimal_places} decimal places")
+        return None
     return value
 
 
 def read_reviewed(path: Path) -> ReviewedItems:
     rows = read_csv_rows(path)
     out = ReviewedItems([], [], 0, [])
+    if path.is_file():
+        with path.open(encoding="utf-8-sig", newline="") as fh:
+            columns = set(next(csv.reader(fh), []))
+        if not {"action", "verified", "brand_name", "food_item", "calories"} <= columns:
+            out.errors.append("review CSV is missing required column headers")
+            return out
     seen: dict[tuple[str, str, str], int] = {}
     for line, r in enumerate(rows, start=2):  # row 1 is the header
         action = r.get("action", "").lower()
@@ -482,11 +664,27 @@ def read_reviewed(path: Path) -> ReviewedItems:
         calories = _parse_number(r.get("calories", ""), "calories", line, out.errors,
                                  lo=0, hi=MAX_CALORIES, integer=True, required=True)
         macros = {
-            k: _parse_number(r.get(k, ""), k, line, out.errors, lo=0, hi=1000)
+            k: _parse_number(r.get(k, ""), k, line, out.errors, lo=0, hi=1000, decimal_places=2)
             for k in ("protein_g", "carbs_g", "fat_g")
         }
+        price = _parse_number(r.get("price_php", ""), "price_php", line, out.errors,
+                              lo=0, hi=99999999.99, decimal_places=2)
+        price_source = r.get("price_source_url") or None
+        if price is not None:
+            parsed_url = urlparse(price_source or "")
+            if not (parsed_url.scheme in {"http", "https"} and parsed_url.netloc):
+                out.errors.append(f"row {line}: price_source_url must be an HTTP(S) source for the price")
+            if verified_raw not in _YES:
+                out.errors.append(f"row {line}: prices require human verification (verified=yes)")
+        elif price_source:
+            out.errors.append(f"row {line}: price_source_url requires price_php")
+        if calories is not None and verified_raw not in _YES and (
+            r.get("is_suspect", "").lower() in _YES
+            or not macro_energy_consistent(calories, **macros)
+        ):
+            out.errors.append(f"row {line}: suspect nutrition requires correction or human verification")
         serving = r.get("serving_size") or UNKNOWN_SERVING
-        if len(food_item) > 255 or len(brand_name) > 255 or len(serving) > 100:
+        if len(food_item) > 255 or len(brand_name) > 255 or len(slug) > 255 or len(serving) > 100:
             out.errors.append(f"row {line}: text too long (food/brand max 255, serving max 100 chars)")
         key = (slug, food_item.lower(), serving.lower())
         if key in seen:
@@ -497,6 +695,8 @@ def read_reviewed(path: Path) -> ReviewedItems:
         out.items.append(ParsedNutrition(
             brand_name=brand_name, brand_slug=slug, food_item=food_item, calories=int(calories),
             serving_size=serving, source_post_url=r.get("source_post_url") or None, **macros,
+            price_php=price, price_source_url=price_source,
+            source_images=[name.strip() for name in r.get("source_images", "").split(";") if name.strip()],
         ))
         out.verified.append(verified_raw in _YES)
     return out
@@ -524,9 +724,10 @@ async def load_reviewed(path: Path, *, dry_run: bool = False) -> dict[str, Any]:
     await init_db(get_engine())
     async with get_sessionmaker()() as session:
         result["written"] = await upsert_catalog_items(
-            session, reviewed.items, get_embedder(), verified=reviewed.verified
+            session, reviewed.items, get_embedder(), verified=reviewed.verified, commit=False
         )
-        result["branches"] = await rematch_branches(session, await load_brand_matcher(session))
+        result["branches"] = await rematch_branches(session, await load_brand_matcher(session), commit=False)
+        await session.commit()
     return result
 
 
@@ -595,16 +796,22 @@ def main(argv: Sequence[str] | None = None) -> None:
     parser.add_argument("--data-dir", type=Path, default=DEFAULT_DATA_DIR)
     sub = parser.add_subparsers(dest="stage", required=True)
 
+    p = sub.add_parser("import-local", help="import authorized local images and captions from a JSON manifest")
+    p.add_argument("--manifest", type=Path, required=True)
+
     p = sub.add_parser("scrape", help="download new posts (images + caption) from Instagram")
     p.add_argument("--profile", default=DEFAULT_PROFILE)
     p.add_argument("--max-new", type=int, default=15, help="stop after this many NEW posts")
     p.add_argument("--login", help="Instagram username with a saved `instaloader --login` session")
+    p.add_argument("--session-file", type=Path, help="path to your own saved session; requires --login")
     p.add_argument("--sleep", type=float, default=4.0, help="base seconds between posts (jittered)")
 
     p = sub.add_parser("ocr", help="run Tesseract on downloaded images (cached)")
     p.add_argument("--force", action="store_true", help="ignore the cache and redo every image")
     p.add_argument("--workers", type=int, default=4)
     p.add_argument("--lang", default=None, help="Tesseract languages, e.g. eng or eng+fil")
+    p.add_argument("--psm", type=int, choices=(3, 6, 11), default=6,
+                   help="page segmentation: 3 automatic, 6 block/table rows, 11 sparse text")
 
     sub.add_parser("parse", help="turn caption + OCR text into review CSVs")
 
@@ -622,18 +829,31 @@ def main(argv: Sequence[str] | None = None) -> None:
     dirs = DataDirs(args.data_dir)
     settings = get_settings()
 
-    if args.stage == "scrape":
-        summary = scrape(dirs, profile=args.profile, max_new=args.max_new, login=args.login, sleep_s=args.sleep)
+    if args.stage == "import-local":
+        try:
+            _print(import_local(dirs, args.manifest))
+        except (ValueError, OSError) as exc:
+            raise SystemExit(f"Import failed: {exc}") from None
+    elif args.stage == "scrape":
+        if args.sleep < 0 or args.max_new < 0:
+            parser.error("--sleep and --max-new must be nonnegative")
+        summary = scrape(dirs, profile=args.profile, max_new=args.max_new, login=args.login, sleep_s=args.sleep,
+                         session_file=args.session_file)
         _print(summary)
         if summary.stopped_early:
             raise SystemExit("Scrape stopped. Follow any Instagram prompt, then retry later. "
                              "Completed posts will be skipped.")
+        if summary.failed:
+            raise SystemExit("Some downloads failed; incomplete posts remain retryable. Use local import if access is unavailable.")
     elif args.stage == "ocr":
         from app.services.ingestion_ocr import ocr_image, tesseract_engine_id
 
         lang = args.lang or settings.ocr_lang
-        _print(run_ocr(dirs, ocr_fn=lambda path: ocr_image(path, lang=lang),
-                       engine_id=tesseract_engine_id(lang), force=args.force, workers=args.workers))
+        summary = run_ocr(dirs, ocr_fn=lambda path: ocr_image(path, lang=lang, psm=args.psm),
+                          engine_id=tesseract_engine_id(lang, args.psm), force=args.force, workers=args.workers)
+        _print(summary)
+        if summary.failed:
+            raise SystemExit("OCR failed for some images; fix the source files or Tesseract installation and retry.")
     elif args.stage == "parse":
         summary = run_parse(dirs)
         _print(summary)

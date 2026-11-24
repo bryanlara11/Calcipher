@@ -6,6 +6,61 @@ SQL constraints (calories, protein, distance), and ranked with **pgvector**.
 
 Architecture, invariants and status: see [AGENTS.md](AGENTS.md).
 
+The ingestion path now supports **authorized local carousel images and captions** without
+Instagram access, human review before loading, nullable source-backed PHP prices, and hard
+budget filters. The original FastAPI/React/Google Places/pgvector architecture and 768-dimensional
+RoBERTa model are retained. The LLM can select a retrieved record; factual text comes from storage.
+
+- [Operator guide: macOS setup, import, review, database, demo and troubleshooting](docs/OPERATIONS.md)
+- [Audit: findings, evidence, tests, limitations and GitHub handoff](docs/AUDIT.md)
+
+## Branded interface and current verification
+
+Light, Dark and System modes persist locally. The supplied logo, simplified SVG icon, responsive
+meal filters, map, menus and chat share a forest-green/cream theme. Inline PHP prices and slide
+references are review proposals; live Instagram retrieval is still unverified, not fixed by import.
+Current checks: 278 backend tests, 14 frontend tests, lint/build pass; npm audits report zero findings.
+Use Node 22 LTS and npm 11.21.3 for the tested frontend setup (`npx --yes npm@11.21.3 ci`).
+
+## Quick start on macOS
+
+From the repository root (Python 3.12; Node 22 LTS recommended):
+
+```bash
+brew install tesseract node@22
+export PATH="/opt/homebrew/opt/node@22/bin:$PATH"
+cd backend
+python3 -m venv .venv
+.venv/bin/python -m pip install -r requirements-dev.txt -c requirements-tested.txt
+.venv/bin/python dev_db.py
+SEED_DEMO_ITEMS=false SEED_DEMO_BRANCHES=false .venv/bin/python -m app.db.seed
+.venv/bin/python run.py
+```
+
+The tested Python dependency snapshot is in `backend/requirements-tested.txt`. `dev_db.py`
+creates `.env` with its database URL; preserve that URL and set `SEED_DEMO_ITEMS=false` there for
+a real-data pilot. Do not overwrite an existing `.env`. Start the frontend in another terminal
+with `cd frontend`, `npm ci`, then `npm run dev -- --host 127.0.0.1`. Google keys are still
+required for the production map/discovery; ingestion and the catalog work without them.
+
+## Recommended local ingestion
+
+Ask the owner for originals, captions and permission or an authorized export. Prepare
+`backend/source-data/posts.json` using the [manifest format](docs/OPERATIONS.md#import-authorized-local-media).
+From `backend/`:
+
+```bash
+.venv/bin/python -m app.ingest import-local --manifest source-data/posts.json
+.venv/bin/python -m app.ingest ocr --lang eng --psm 6
+.venv/bin/python -m app.ingest parse
+```
+
+New review rows start `action=skip, verified=no`. Check and correct `data/review/reviewed.csv`
+against the originals, opt in with `action=load`, and set `verified=yes` only after human checking.
+Then run `.venv/bin/python -m app.ingest load --dry-run`, followed by `load`. Reruns preserve
+review edits. Missing macros/prices remain null and missing servings show `serving size unavailable`.
+Prices require a source and human verification; budget searches exclude unknown prices.
+
 ## Google Maps setup
 
 Enable billing, **Places API (New)** and **Maps JavaScript API** in your Google Cloud project.
@@ -62,12 +117,15 @@ cd backend && .venv/Scripts/python -m pytest
 
 DB tests use `TEST_DATABASE_URL` if set, otherwise an embedded `pgserver` instance.
 
-## Load real @anongcaloriesnito data
+## Optional authorized Instaloader ingestion
 
 Each stage reads the previous stage's files under `backend/data/` (git-ignored), so you scrape
 once and can re-run OCR or parsing as often as you like. Run these from `backend/`.
 
-1. Log in to Instagram once. This saves a session file; you type your password into instaloader
+Only use this path when collection is authorized. Prefer the local import above when live
+access is unavailable. A saved login or academic purpose alone does not establish authorization.
+
+1. Log in to Instagram once using your own account. This saves a session file; you type your password into instaloader
    itself:
 
    ```bash
@@ -92,7 +150,7 @@ once and can re-run OCR or parsing as often as you like. Run these from `backend
    .venv/Scripts/python -m app.ingest parse
    ```
 
-5. Open `data/review/reviewed.csv` in Excel. Fix values, set `action` to `load` or `skip`, and
+5. Open `data/review/reviewed.csv` in Excel. New rows start `skip/no`. Fix values, set `action` to `load` or `skip`, and
    `verified` to `yes` for rows you checked against the post. Re-running `parse` only appends
    new posts; it never overwrites your edits.
 6. Validate, then load. Loading is all-or-nothing and also re-matches map pins to new brands:
@@ -114,8 +172,9 @@ once and can re-run OCR or parsing as often as you like. Run these from `backend
 `python -m app.ingest status` shows counts for every stage. After switching `EMBEDDER_BACKEND`
 or `EMBEDDING_MODEL`, run `python -m app.ingest reembed`.
 
-Instagram's terms prohibit automated scraping: keep batches small and use the data for academic
-research only. Asking @anongcaloriesnito for permission or a data export is the safer route.
+Stop on authentication failures or HTTP 401/429 and use local import while access is unavailable.
+Do not bypass access controls, CAPTCHA or rate limits. Ask @anongcaloriesnito for permission,
+original media or an authorized export. See the operator guide for session recovery and API options.
 
 ## Data honesty
 

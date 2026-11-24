@@ -11,8 +11,8 @@ solves nutritional opacity when eating out in the Philippines.
 
 **CRITICAL DATA ARCHITECTURE NOTE**
 
-- Nutrition data is scraped from **`@anongcaloriesnito`** on Instagram with `instaloader` +
-  `pytesseract` OCR. Posts contain **brand/chain names, food item names, serving sizes, calories
+- Nutrition data comes from authorized local originals/captions (recommended) or authorized
+  **`@anongcaloriesnito`** Instaloader access, followed by `pytesseract` OCR. Posts contain **brand/chain names, food item names, serving sizes, calories
   and macros**, but **NO geographic coordinates or branch addresses**.
 - Production locations come from Google Places API (New) and display on Google Maps. Live
   listings join to the catalog by matched brand slug using a request-scoped SQL recordset.
@@ -77,6 +77,9 @@ embedded), `embedding VECTOR(768)` with HNSW `vector_cosine_ops`, `embedding_mod
 embedder produced the vector; added via `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` in `init_db`),
 `created_at`.
 Unique: `(brand_slug, food_item, serving_size)` → idempotent seeding/ingestion.
+Additive optional fields: `price_php NUMERIC(10,2)`, `price_source_url TEXT`. A price requires
+nonnegative value, source and human verification. Missing prices remain null; unknown servings
+use the explicit `serving size unavailable` status to retain the non-null serving contract.
 
 ### `osm_branch_cache` (spatial layer)
 PK **`(osm_type, osm_id)`** — *deliberate deviation from a bare `osm_id` PK*: OSM node, way and
@@ -106,8 +109,8 @@ an empty neighborhood would otherwise always look like a cache miss.
    brand, distance) → `DISTINCT ON (item)` nearest branch → ORDER BY `embedding <=> :query_vec`
    → top K=5, plus `COUNT(*) OVER ()` candidate count.
 4. **Grounded generation** (`generator.GroundedGenerator`): only the K records go to the LLM inside
-   `<retrieved_records>`; user text inside `<user_query>`. LLM output is rejected (template used)
-   if it cites calorie numbers not present in the records. **Relaxation ladder** on zero results:
+   `<retrieved_records>`; user text inside `<user_query>`. The LLM may return only a retrieved item ID;
+   all factual text is rendered by code. Unknown IDs/extra claims use the template. **Relaxation ladder** on zero results:
    calories +15% → distance 5 km → both; the notice is prepended deterministically.
 
 ## 5. Invariants (do not break)
@@ -121,10 +124,14 @@ an empty neighborhood would otherwise always look like a cache miss.
   Default model `sentence-transformers/all-distilroberta-v1` (RoBERTa, 768-dim).
   Note: `all-roberta-large-v1` is **1024-dim** and is incompatible with `VECTOR(768)`.
 - **Context strings** are always produced by `ingestion_ocr.build_context_string` (seed + OCR).
-- **Ingestion is staged** (`app/ingest.py`): scrape → `data/raw`, ocr → `data/ocr` (cached by
+- **Ingestion is staged** (`app/ingest.py`): authorized import-local (or scrape) → `data/raw`, ocr → `data/ocr` (cached by
   image sha256 + engine id; bump `PREPROCESS_VERSION` when preprocessing changes), parse →
-  `data/review/parsed.csv` + appends *new posts only* to `reviewed.csv` (human-owned, never
-  rewritten), load → validates all-or-nothing, upserts, then `rematch_branches`.
+  `data/review/parsed.csv` + appends *new complete posts only* to `reviewed.csv` (human-owned, never
+  rewritten). New rows start skip/no. Load validates all-or-nothing and commits catalog upserts
+  and `rematch_branches` together. Parse slides independently and reject stale image/preprocessing OCR.
+- **No invented availability:** missing macros/prices are null, missing servings are explicitly
+  unavailable, and missing calories remain skipped review placeholders. Prices require checked
+  source evidence. `max_price_php` is a bound SQL filter that excludes null prices and never relaxes.
 - **Verification is human-only:** rows become `is_verified` only via `verified=yes` in
   reviewed.csv. Unverified writes never overwrite verified rows; demo seeding never overwrites
   scraped (`source_post_url` set) or verified rows; `--purge-demo-items` never deletes them.
@@ -150,6 +157,54 @@ an empty neighborhood would otherwise always look like a cache miss.
 ## 7. Current Implementation Status
 
 _(updated at the end of every completed task)_
+
+**2026-11-24 - branded frontend, security fixes and ingestion verification**
+
+- Retained every prior ingestion improvement and the existing React/FastAPI/Google/pgvector architecture.
+- Supplied logo optimized as WebP; simplified editable cloche/chart SVG icon; cream/forest design
+  tokens, responsive meal search/map/chat/inspector, persistent Light/Dark/System and early theme init.
+- Vite 6.4.6, PostCSS 8.5.33, patched Vitest 4.1.12; React/Tailwind unchanged. Node 22.23.5 with
+  npm 11.21.3 used for checks; no global Node relinking. Full/prod npm audits: zero findings.
+- 278 backend tests (original 273 preserved), 14 frontend tests, ESLint and production build pass.
+  Browser desktop/tablet/mobile and both themes checked. Full evidence: docs/AUDIT.md.
+- Inline PHP/₱ price proposals remain skip/no until checked; source_images CSV -> JSONB -> API
+  traces contributing slides. Existing verified corrections/provenance remain protected.
+- Real public US restaurant PDF OCR was attempted; full-table parsing produced zero items.
+  Assisted verification proposals remained unverified in an isolated database, never PH catalog data.
+- Original live Instagram retrieval remains unresolved. Authorized owner media/export and human
+  review are the fallback; Google credentials/billing are needed for live maps. Gemini/Docker unverified.
+- GitHub connector verifies dpsahagon/profile email and repository push access. User authorized
+  commit/publication/draft PR on this branch after testing; no force-push or main merge.
+  Actual outcome: local commit under dpsahagon@up.edu.ph; connector writes fail HTTP 403 and
+  terminal Git/SSH credentials are absent. No branch publication or PR; commands in OPERATIONS.md.
+
+
+**2026-11-23 — repository audit and authorized ingestion stabilization**
+
+- [x] Public repository cloned into the selected empty workspace; `origin` remains
+      bryanlara11/Calcipher. Work is local on `dpsahagon/instagram-ingestion-fix`, with no commits,
+      pushes or PR creation pending the user's explicit approval. GitHub authentication as
+      dpsahagon is unavailable; inherited email needs confirmation before authorship configuration.
+- [x] Authorized local manifest import with ordered carousels, captions/provenance, preflight
+      validation, identical-import skipping and conflicting-import preservation. No live access required.
+- [x] Session failures are recoverable; session identity and download image completeness are
+      checked. 401/429/auth refusals stop collection. No access-control/rate-limit evasion.
+- [x] Atomic/fresh OCR caches; EXIF/bounded preprocessing; PSM 3/6/11; independent slide parsing;
+      conflict/ambiguity flags; explicit missing serving; zero/thousands calorie support; exact
+      decimal macro context; all generated review rows require explicit action=load.
+- [x] Transactional catalog load/rematch; existing reviewed edits/verified row protections retained.
+      Nullable source-backed PHP prices, budget SQL filtering, availability/verification UI and
+      record-ID-only LLM selection prevent unsupported numerical prose.
+- [x] Baseline 216 backend tests passed. Updated suite: 273 passed, no failures/skips. Real
+      Tesseract and embedded PostgreSQL/pgvector exercised with synthetic sources; network/LLM
+      responses mocked. Frontend production build and pip check pass. Production RoBERTa loads
+      and produces 768 dimensions; local API/Vite start and health is OK.
+- [x] README, docs/OPERATIONS.md, docs/AUDIT.md, manifest example, tested Python constraints,
+      and draft PR text provide reproduction and GitHub handoff commands.
+- Still external/unverified: authorized real source media, live Instagram, Google keys/billing,
+      Gemini, Docker. The persistent audit dev catalog is empty; tests use synthetic fixtures.
+      Existing npm audit: esbuild moderate, postcss high, vite high; separate security update needed.
+      Historical status entries below are retained as history, not newly reproduced live evidence.
 
 **2026-11-17 — initial build complete**
 

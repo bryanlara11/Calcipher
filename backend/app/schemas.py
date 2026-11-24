@@ -21,6 +21,7 @@ class SearchConstraints(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     max_calories: int | None = Field(None, ge=0, le=10_000)
+    max_price_php: float | None = Field(None, ge=0, le=99999999.99, allow_inf_nan=False)
     min_protein_g: float | None = Field(None, ge=0, le=500)
     max_distance_km: float = Field(DEFAULT_DISTANCE_KM, gt=0, le=MAX_DISTANCE_KM)
     target_brand: str | None = Field(None, max_length=255)
@@ -45,6 +46,7 @@ class ChatRequest(BaseModel):
 
 
 class RetrievedItem(BaseModel):
+    source_images: list[str] = Field(default_factory=list)
     item_id: str
     brand_name: str
     brand_slug: str
@@ -56,6 +58,8 @@ class RetrievedItem(BaseModel):
     serving_size: str
     is_verified: bool
     source_post_url: str | None
+    price_php: float | None = None
+    price_source_url: str | None = None
     place_id: str | None = None
     attributions: list[dict[str, str]] = Field(default_factory=list)
     osm_type: str | None = None
@@ -141,6 +145,7 @@ class MapItemsResponse(BaseModel):
 
 
 class CatalogItem(BaseModel):
+    source_images: list[str] = Field(default_factory=list)
     item_id: str
     brand_name: str
     food_item: str
@@ -151,6 +156,8 @@ class CatalogItem(BaseModel):
     serving_size: str
     is_verified: bool
     source_post_url: str | None
+    price_php: float | None = None
+    price_source_url: str | None = None
 
 
 class BrandItemsResponse(BaseModel):

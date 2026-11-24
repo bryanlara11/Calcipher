@@ -39,7 +39,7 @@ async def reembed_catalog(
     stmt = select(
         NutritionCatalog.id, NutritionCatalog.brand_name, NutritionCatalog.food_item,
         NutritionCatalog.serving_size, NutritionCatalog.calories, NutritionCatalog.protein_g,
-        NutritionCatalog.carbs_g, NutritionCatalog.fat_g,
+        NutritionCatalog.carbs_g, NutritionCatalog.fat_g, NutritionCatalog.price_php,
     ).order_by(NutritionCatalog.id)
     if only_stale:
         stmt = stmt.where(_stale_filter(embedder.name))
@@ -50,7 +50,7 @@ async def reembed_catalog(
         batch = rows[start : start + batch_size]
         contexts = [
             build_context_string(r.brand_name, r.food_item, r.serving_size, r.calories,
-                                 r.protein_g, r.carbs_g, r.fat_g)
+                                 r.protein_g, r.carbs_g, r.fat_g, r.price_php)
             for r in batch
         ]
         vectors = await asyncio.to_thread(embedder.embed, contexts)
@@ -67,7 +67,7 @@ async def reembed_catalog(
     return done
 
 
-async def rematch_branches(session: AsyncSession, matcher: BrandMatcher) -> dict[str, int]:
+async def rematch_branches(session: AsyncSession, matcher: BrandMatcher, *, commit: bool = True) -> dict[str, int]:
     """Re-run brand matching over cached OSM branches after the catalog's brand list changed.
 
     Conservative: an unmatched branch may gain a slug, and a slug whose brand no longer exists
@@ -97,5 +97,6 @@ async def rematch_branches(session: AsyncSession, matcher: BrandMatcher) -> dict
                 newly_matched += 1
     if changes:
         await session.execute(update(OsmBranchCache), changes)
-        await session.commit()
+        if commit:
+            await session.commit()
     return {"checked": len(rows), "newly_matched": newly_matched, "cleared": cleared}

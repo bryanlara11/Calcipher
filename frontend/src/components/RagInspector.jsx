@@ -33,7 +33,7 @@ function Discovery({ d, title }) {
 function Timings({ timings }) {
   const stages = ["parse", "discovery", "embed", "retrieval", "generation"].filter((s) => s in timings);
   const total = timings.total || stages.reduce((a, s) => a + timings[s], 0) || 1;
-  const colors = { parse: "#5B2A86", discovery: "#F2A900", embed: "#18202B", retrieval: "#7D8792", generation: "#C9D0D7" };
+  const colors = { parse: "var(--forest)", discovery: "var(--mustard)", embed: "var(--coral)", retrieval: "var(--olive)", generation: "var(--tomato)" };
   return (
     <div>
       <h4 className="mb-1 font-bold">Stage timings ({total.toFixed(0)} ms)</h4>
@@ -90,7 +90,7 @@ export default function RagInspector({ open, onToggle, onClose, chat, map }) {
         )}
       </div>
 
-      <div className="grid max-h-[26vh] gap-5 lg:max-h-[45vh] overflow-y-auto px-4 pb-4 sm:grid-cols-2 lg:grid-cols-3">
+      <div hidden={!open} className="grid max-h-[26vh] gap-5 lg:max-h-[45vh] overflow-y-auto px-4 pb-4 sm:grid-cols-2 lg:grid-cols-3">
         {map && <Discovery d={map.discovery} title={`Map layer (${map.matched_count} with data, ${map.unmatched_count} without)`} />}
 
         {insp ? (
@@ -102,6 +102,7 @@ export default function RagInspector({ open, onToggle, onClose, chat, map }) {
               <h4 className="mb-1 font-bold">Parsed constraints ({insp.parser_used})</h4>
               <dl className="text-sm">
                 <Row k="Max calories">{c.max_calories ?? "none"}</Row>
+                <Row k="Max price (PHP)">{c.max_price_php ?? "none"}</Row>
                 <Row k="Min protein">{c.min_protein_g != null ? `${c.min_protein_g} g` : "none"}</Row>
                 <Row k="Max distance">{c.max_distance_km} km</Row>
                 <Row k="Brand">{c.target_brand ?? "any"}</Row>
@@ -119,7 +120,7 @@ export default function RagInspector({ open, onToggle, onClose, chat, map }) {
                 <Row k="Rows passing SQL filters">{insp.candidate_count}</Row>
                 <Row k="Attempts (incl. relaxation)">{insp.retrieval_attempts}</Row>
                 <Row k="Embedder">{insp.embedder}</Row>
-                <Row k="Answer written by">{insp.generator_used === "llm" ? "Gemini (grounded)" : "Template"}</Row>
+                <Row k="Recommendation rendering">{insp.generator_used === "llm" ? "Stored facts + Gemini selection" : "Stored facts template"}</Row>
                 <Row k="Injection flags">{insp.injection_flags.length ? insp.injection_flags.join(", ") : "none"}</Row>
               </dl>
               {chat.results.length > 0 && (

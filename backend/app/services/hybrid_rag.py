@@ -72,6 +72,7 @@ candidates AS (
     SELECT DISTINCT ON (n.id)
            n.id AS item_id, n.brand_name, n.brand_slug, n.food_item, n.calories,
            n.protein_g, n.carbs_g, n.fat_g, n.serving_size, n.is_verified, n.source_post_url,
+           n.price_php, n.price_source_url, n.source_images,
            nb.place_id, nb.attributions, nb.osm_type, nb.osm_id, nb.poi_name, nb.amenity_type, nb.latitude, nb.longitude,
            nb.address_hint, nb.distance_km,
            (n.embedding <=> CAST(:query_vec AS vector)) AS cosine_distance
@@ -80,6 +81,8 @@ candidates AS (
     WHERE nb.distance_km <= :max_distance_km
       AND (CAST(:max_cal AS integer) IS NULL OR n.calories <= CAST(:max_cal AS integer))
       AND (CAST(:min_protein AS numeric) IS NULL OR n.protein_g >= CAST(:min_protein AS numeric))
+      AND (CAST(:max_price AS numeric) IS NULL OR (n.price_php IS NOT NULL AND n.is_verified
+           AND n.price_source_url IS NOT NULL AND n.price_php <= CAST(:max_price AS numeric)))
       AND (CAST(:target_brand AS text) IS NULL OR n.brand_slug = CAST(:target_brand AS text))
     ORDER BY n.id, nb.distance_km ASC
 )
@@ -125,7 +128,7 @@ PLACES_MAP_SQL = text(_MAP_QUERY.format(branches=_PLACES_FROM))
 BRAND_ITEMS_SQL = text(
     """
 SELECT id AS item_id, brand_name, food_item, calories, protein_g, carbs_g, fat_g, serving_size,
-       is_verified, source_post_url
+       is_verified, source_post_url, price_php, price_source_url, source_images
 FROM nutrition_catalog
 WHERE brand_slug = :brand_slug
 ORDER BY calories ASC
@@ -164,6 +167,7 @@ async def retrieve(
         "max_lng": max_lng,
         "max_distance_km": constraints.max_distance_km,
         "max_cal": constraints.max_calories,
+        "max_price": constraints.max_price_php,
         "min_protein": constraints.min_protein_g,
         "target_brand": constraints.target_brand,
         "query_vec": to_pgvector_literal(list(query_vec)),
@@ -187,6 +191,9 @@ async def retrieve(
             serving_size=r["serving_size"],
             is_verified=r["is_verified"],
             source_post_url=r["source_post_url"],
+            price_php=_f(r["price_php"]),
+            price_source_url=r["price_source_url"],
+            source_images=r["source_images"],
             place_id=r["place_id"],
             attributions=r["attributions"] or [],
             osm_type=r["osm_type"],
@@ -263,6 +270,9 @@ async def brand_items(session: AsyncSession, brand_slug: str) -> list[CatalogIte
             serving_size=r["serving_size"],
             is_verified=r["is_verified"],
             source_post_url=r["source_post_url"],
+            price_php=_f(r["price_php"]),
+            price_source_url=r["price_source_url"],
+            source_images=r["source_images"],
         )
         for r in rows
     ]

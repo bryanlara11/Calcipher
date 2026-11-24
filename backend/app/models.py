@@ -28,7 +28,7 @@ from sqlalchemy import (
     UniqueConstraint,
     func,
 )
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 EMBEDDING_DIM = 768
@@ -55,6 +55,9 @@ class NutritionCatalog(Base):
     protein_g: Mapped[Decimal | None] = mapped_column(Numeric(6, 2))
     carbs_g: Mapped[Decimal | None] = mapped_column(Numeric(6, 2))
     fat_g: Mapped[Decimal | None] = mapped_column(Numeric(6, 2))
+    price_php: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))
+    price_source_url: Mapped[str | None] = mapped_column(Text)
+    source_images: Mapped[list[str]] = mapped_column(JSONB, default=list, server_default="[]")
     serving_size: Mapped[str] = mapped_column(String(100), nullable=False)
     is_verified: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
     source_post_url: Mapped[str | None] = mapped_column(Text)
@@ -73,6 +76,8 @@ class NutritionCatalog(Base):
         CheckConstraint("carbs_g IS NULL OR carbs_g >= 0", name="ck_catalog_carbs_nonneg"),
         CheckConstraint("fat_g IS NULL OR fat_g >= 0", name="ck_catalog_fat_nonneg"),
         CheckConstraint("brand_slug <> ''", name="ck_catalog_slug_nonempty"),
+        CheckConstraint("price_php IS NULL OR (price_php >= 0 AND price_source_url IS NOT NULL AND is_verified)",
+                        name="ck_catalog_price_source"),
         UniqueConstraint("brand_slug", "food_item", "serving_size", name="uq_catalog_item"),
         Index(
             "ix_nutrition_catalog_embedding_hnsw",

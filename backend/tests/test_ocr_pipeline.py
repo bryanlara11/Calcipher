@@ -86,7 +86,7 @@ def test_post_without_brand_is_skipped(matcher):
     assert parse_nutrition_text("yummy!", "Mystery Meal 500 kcal", matcher) == []
 
 
-@pytest.mark.parametrize("bad", ["Huge Platter 25000 kcal", "Water 0 kcal"])
+@pytest.mark.parametrize("bad", ["Huge Platter 25000 kcal", "Burger -5 kcal", "Calories: -5"])
 def test_out_of_range_calories_dropped(matcher, bad):
     assert parse_nutrition_text("#jollibee", bad, matcher) == []
 

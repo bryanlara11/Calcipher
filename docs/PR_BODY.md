@@ -1,0 +1,9 @@
+CalCipher depended on unreliable live Instagram access and lacked a supported local source route. Add authorized carousel/caption import so permitted images can move through cached OCR, explicit human review, PostgreSQL/pgvector and source-grounded recommendations without live Instagram availability.
+
+Refresh the existing app with the supplied culinary logo, a forest-green/cream design system, responsive search/map/chat panels, real Light/Dark/System preference persistence, and shared accessible controls. Preserve Google Maps/Places, menus, radius controls, chat, attribution and retrieval inspection. Patch Vite/esbuild/PostCSS and add frontend tests/linting without changing React or Tailwind.
+
+Ingestion now isolates slides, records slide provenance, flags conflicting/ambiguous values and inline PHP price proposals, preserves reviewed/verified corrections, and commits load/rematching transactionally. Optional source-backed prices drive bound SQL budget filters that exclude unknown prices. LLM selection is restricted to retrieved IDs; all factual prose comes from stored records.
+
+Validation: 278 backend tests pass (original 273 preserved); 14 frontend tests pass; ESLint and the Vite production build pass; full and production npm audits report zero findings. Real Tesseract/PostgreSQL/pgvector/RoBERTa CLI checks execute on isolated fixtures. Browser checks cover desktop/tablet/mobile and both themes. A public US restaurant-table OCR trial did not automatically parse: assisted proposals remain unverified and outside the PH catalog.
+
+Live Instagram retrieval remains unresolved/unverified; local import is explicitly a fallback. Real permitted PH media, human review and Google keys/billing are needed for live demonstration. Gemini and Docker remain unverified. See docs/AUDIT.md and docs/OPERATIONS.md for evidence and limitations. Draft only; do not merge without review.

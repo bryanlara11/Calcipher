@@ -4,6 +4,9 @@ import ChatPanel from "./components/ChatPanel.jsx";
 import RagInspector from "./components/RagInspector.jsx";
 import SplashScreen from "./components/SplashScreen.jsx";
 import { chat, mapItems } from "./api/client.js";
+import { BrandLogo, CloseButton, Icon } from "./components/Brand.jsx";
+import ThemeControl, { useTheme } from "./components/ThemeControl.jsx";
+import MealSearch from "./components/MealSearch.jsx";
 
 const UP_MANILA = { lat: 14.5785, lng: 120.985 };
 const EMPTY = [];
@@ -12,29 +15,8 @@ const inPhilippines = ({ lat, lng }) => lat >= 4.5 && lat <= 21.5 && lng >= 116 
 
 let nextId = 1;
 
-function CloseButton({ label, onClick, className = "" }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-label={label}
-      title={label}
-      className={`grid h-7 w-7 shrink-0 place-items-center rounded text-lg leading-none text-ink hover:bg-slate-map ${className}`}
-    >
-      <span aria-hidden="true">×</span>
-    </button>
-  );
-}
-
-function ChatIcon() {
-  return (
-    <svg aria-hidden="true" viewBox="0 0 20 20" className="h-4 w-4" fill="currentColor">
-      <path d="M3 4.5A2.5 2.5 0 0 1 5.5 2h9A2.5 2.5 0 0 1 17 4.5v6a2.5 2.5 0 0 1-2.5 2.5H9l-4 3.5V13h.5-1A2.5 2.5 0 0 1 3 10.5z" />
-    </svg>
-  );
-}
-
 export default function App() {
+  const appearance = useTheme();
   const [location, setLocation] = useState(UP_MANILA);
   const [viewport, setViewport] = useState(null);
   const [searchViewport, setSearchViewport] = useState(null);
@@ -52,13 +34,22 @@ export default function App() {
   const [mapError, setMapError] = useState(null);
   const [mapErrorDismissed, setMapErrorDismissed] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
-  const [showInspector, setShowInspector] = useState(true);
+  const [showInspector, setShowInspector] = useState(false);
   const [messages, setMessages] = useState([]);
   const [lastChat, setLastChat] = useState(null);
   const [busy, setBusy] = useState(false);
   const [focus, setFocus] = useState(null);
   const [inspectorOpen, setInspectorOpen] = useState(false);
   const [geoError, setGeoError] = useState(null);
+  useEffect(() => {
+    function escape(event) {
+      if (event.key !== "Escape") return;
+      if (showInspector) { setShowInspector(false); setInspectorOpen(false); }
+      else if (chatOpen) setChatOpen(false);
+    }
+    window.addEventListener("keydown", escape);
+    return () => window.removeEventListener("keydown", escape);
+  }, [chatOpen, showInspector]);
   const debounce = useRef();
   // While Google Places is cooling down (429), skip map requests entirely. Nothing refetches
   // automatically when it ends; the next pin move, radius change or Retry does.
@@ -171,140 +162,58 @@ export default function App() {
   }
 
   return (
-    <div className="flex h-full flex-col lg:flex-row">
+    <div className="app-shell">
       <SplashScreen />
-      <main
-        className={`relative shrink-0 overflow-hidden lg:h-full lg:flex-1 ${chatOpen ? "h-[48vh]" : "h-full"}`}
-      >
-        <CalorieMap
-          location={location}
-          onMove={moveTo}
-          onViewport={onViewport}
-          radiusKm={previewMeters / 1000}
-          pins={pins}
-          results={lastChat?.results ?? EMPTY}
-          focus={focus}
-          reserveBottom={chatOpen && showInspector}
-        />
-
-        <button
-          type="button"
-          onClick={() => setChatOpen((o) => !o)}
-          aria-expanded={chatOpen}
-          aria-controls="chat-panel"
-          className={`absolute right-3 top-3 z-[1001] flex items-center gap-1.5 rounded-md border-2 border-ink px-3 py-1.5 text-sm font-bold shadow-[3px_3px_0_#18202B] ${
-            chatOpen ? "bg-label text-ink hover:bg-slate-map" : "bg-ube text-label hover:bg-ink"
-          }`}
-        >
-          <ChatIcon />
-          {chatOpen ? "Hide chat" : "Chat"}
-        </button>
-
-        {/* pr-28 keeps the wrapping controls clear of the Chat button */}
-        <div className="pointer-events-none absolute inset-x-0 top-0 z-[1000] flex flex-wrap items-start gap-2 p-3 pr-28">
-          <div className="pointer-events-auto flex flex-wrap items-center gap-2 rounded-md border-2 border-ink bg-label p-1.5 shadow-[3px_3px_0_#18202B]">
-            <div role="radiogroup" aria-label="Map pins" className="flex rounded border border-ink">
-              {[
-                [true, "Calorie spots"],
-                [false, "Nearby restaurants"],
-              ].map(([val, label]) => (
-                <button
-                  key={label}
-                  role="radio"
-                  aria-checked={verifiedOnly === val}
-                  onClick={() => setVerifiedOnly(val)}
-                  className={`px-2.5 py-1 text-sm font-semibold ${verifiedOnly === val ? "bg-ink text-label" : "hover:bg-slate-map"}`}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-            <label className="flex items-center gap-1.5 px-1 text-sm font-semibold">
-              Radius
-              <input
-                type="range"
-                aria-label="Search radius"
-                aria-valuetext={formatRadius(previewMeters)}
-                min={100}
-                max={5000}
-                step={100}
-                value={previewMeters}
-                onPointerDown={event => {
-                  draggingRadius.current = true;
-                  event.currentTarget.setPointerCapture(event.pointerId);
-                }}
-                onChange={event => {
-                  const meters = event.currentTarget.valueAsNumber;
-                  setPreviewMeters(meters);
-                  if (!draggingRadius.current) applyRadius(meters);
-                }}
-                onLostPointerCapture={finishRadiusDrag}
-                onBlur={finishRadiusDrag}
-                className="w-28 cursor-pointer accent-ube"
-              />
-              <span className="num min-w-12">{formatRadius(previewMeters)}</span>
-            </label>
-            {(viewport !== searchViewport || mapError) && (
-              <button type="button" disabled={quotaUntil > 0}
-                title={quotaUntil > 0 ? "Google Places is cooling down; try again shortly" : undefined}
-                className="rounded px-2 py-1 text-sm font-semibold text-ube underline disabled:cursor-not-allowed disabled:opacity-40"
-                onClick={() => { setSearchViewport(viewport); setRetry(n => n + 1); setMapError(null); }}>
-                {viewport !== searchViewport ? "Search this area" : "Retry search"}
-              </button>
-            )}
-            <button type="button" onClick={useMyLocation} className="rounded px-2 py-1 text-sm font-semibold text-ube underline decoration-2 underline-offset-2">
-              Use my location
-            </button>
-          </div>
-          {alertText && (
-            <div role="alert" className="pointer-events-auto flex max-w-sm items-start gap-1 rounded-md border-2 border-warn bg-label py-1 pl-3 pr-1 text-sm">
-              <p className="flex-1 py-0.5">{alertText}</p>
-              <CloseButton label="Dismiss message" onClick={dismissAlert} />
-            </div>
-          )}
+      <a href="#meal-search" className="skip-link">Skip to meal search</a>
+      <header className="app-header">
+        <a className="brand-lockup" href="#meal-search" aria-label="CalCipher home">
+          <BrandLogo decorative /><div><span className="brand-wordmark">CalCipher</span><span className="brand-tagline">A little insight. A better bite.</span></div>
+        </a>
+        <div className="header-center"><span className="nav-active"><Icon name="compass" size={17} /> Explore meals</span><span className="header-location"><Icon name="pin" size={15} /> Philippines</span></div>
+        <div className="header-actions"><ThemeControl preference={appearance.preference} onChange={appearance.choose} />
+          <button type="button" className={`button-chat ${chatOpen ? "is-active" : ""}`} aria-label={chatOpen ? "Hide chat" : "Meal assistant"} aria-expanded={chatOpen} aria-controls="chat-panel" onClick={() => setChatOpen(value => !value)}><Icon name="chat" size={18} /><span>{chatOpen ? "Hide chat" : "Meal assistant"}</span></button>
         </div>
-
-        <ul
-          className={`pointer-events-none absolute left-3 z-[999] space-y-1 rounded-md bg-label/95 px-3 py-2 text-xs shadow ${
-            chatOpen && showInspector ? "bottom-14" : "bottom-8"
-          }`}
-        >
-          <li className="flex items-center gap-2"><span className="inline-block h-3 w-3 rounded-full border border-ink bg-ube" /> Has calorie data</li>
-          {!verifiedOnly && <li className="flex items-center gap-2"><span className="inline-block h-2.5 w-2.5 rounded-full bg-nodata" /> No data yet</li>}
-          <li className="flex items-center gap-2"><span className="inline-block h-3 w-3 rounded-full border border-ink bg-mango" /> Your pin (drag or click map)</li>
-        </ul>
-
-        {chatOpen && showInspector && (
-          <RagInspector
-            open={inspectorOpen}
-            onToggle={() => setInspectorOpen((o) => !o)}
-            onClose={() => { setShowInspector(false); setInspectorOpen(false); }}
-            chat={lastChat}
-            map={mapData}
-          />
-        )}
-      </main>
-
-      {chatOpen && (
-        <aside id="chat-panel" className="flex min-h-0 flex-1 flex-col border-ink bg-slate-map lg:w-[27rem] lg:flex-none lg:border-l-2">
-          <header className="flex items-start gap-2 border-b-2 border-ink bg-label px-4 py-3">
-            <div className="min-w-0 flex-1">
-              <h1 className="type-label text-3xl leading-none">CalCipher</h1>
-              <p className="mt-1 text-sm text-slate-mute">
-                Calorie-counted meals at restaurants within {formatRadius(radiusMeters)} of your pin.
-              </p>
-              {!showInspector && (
-                <button type="button" onClick={() => setShowInspector(true)}
-                  className="mt-1 text-sm font-semibold text-ube underline decoration-2 underline-offset-2">
-                  Show retrieval inspector
-                </button>
-              )}
-            </div>
-            <CloseButton label="Close chat" onClick={() => setChatOpen(false)} className="-mr-2 -mt-1" />
-          </header>
-          <ChatPanel messages={messages} onSend={send} busy={busy} onLocate={(it) => setFocus({ lat: it.latitude, lng: it.longitude, t: Date.now() })} />
+      </header>
+      <div className={`workspace ${chatOpen ? "chat-is-open" : ""}`}>
+        <aside className="discovery-sidebar" aria-label="Meal search and map filters">
+          <div className="sidebar-intro"><p className="eyebrow"><Icon name="leaf" size={15} /> GOOD FOOD, WITH INSIGHT</p><h1>Find your next<br /> <em>favorite meal.</em></h1><p>Nearby restaurants. Clearer nutrition.<br />A choice that works for you.</p></div>
+          <div id="meal-search" tabIndex={-1}><MealSearch busy={busy} onSearch={query => { setChatOpen(true); send(query); }} /></div>
+          <div className="map-filters">
+            <div className="section-caption"><Icon name="pin" size={16} /><h2>Your neighborhood</h2></div>
+            <div className="radius-heading"><label htmlFor="search-radius">Search radius</label><output htmlFor="search-radius">{formatRadius(previewMeters)}</output></div>
+            <input id="search-radius" type="range" aria-label="Search radius" aria-valuetext={formatRadius(previewMeters)} min={100} max={5000} step={100} value={previewMeters}
+              onPointerDown={event => { draggingRadius.current = true; event.currentTarget.setPointerCapture(event.pointerId); }}
+              onChange={event => { const meters = event.currentTarget.valueAsNumber; setPreviewMeters(meters); if (!draggingRadius.current) applyRadius(meters); }}
+              onLostPointerCapture={finishRadiusDrag} onBlur={finishRadiusDrag} />
+            <div className="range-limits"><span>100 m</span><span>5 km</span></div>
+            <div role="radiogroup" aria-label="Map pins" className="map-segments">{[[false, "All nearby"], [true, "With nutrition"]].map(([value, label]) =>
+              <button key={label} type="button" role="radio" aria-checked={verifiedOnly === value} tabIndex={verifiedOnly === value ? 0 : -1}
+                onClick={() => setVerifiedOnly(value)} onKeyDown={event => { if (["ArrowLeft", "ArrowRight"].includes(event.key)) { event.preventDefault(); setVerifiedOnly(!verifiedOnly); event.currentTarget.parentElement.querySelector(`[aria-checked="false"]`)?.focus(); } }}>
+                {label}</button>)}</div>
+            <button type="button" onClick={useMyLocation} className="location-button"><Icon name="compass" size={17} />Use my location</button>
+          </div>
+          <div className="source-note"><Icon name="check" size={18} /><p><strong>More clarity in every choice.</strong><br />See source checks, missing values, and prices before you decide.</p></div>
+          <p className="sidebar-footer">Made for the way you eat.</p>
         </aside>
-      )}
+        <main className="map-workspace" aria-label="Restaurant discovery">
+          <div className="map-heading"><div><p className="eyebrow">EXPLORE NEARBY</p><h2>Around your pin <span className="radius-badge">{formatRadius(radiusMeters)}</span></h2></div>
+            {(viewport !== searchViewport || mapError) && <button type="button" disabled={quotaUntil > 0} className="button-secondary" onClick={() => { setSearchViewport(viewport); setRetry(n => n + 1); setMapError(null); }}><Icon name="search" size={16} />{viewport !== searchViewport ? "Search this area" : "Retry search"}</button>}
+          </div>
+          <div className="map-frame">
+            <CalorieMap location={location} onMove={moveTo} onViewport={onViewport} radiusKm={previewMeters / 1000} pins={pins} results={lastChat?.results ?? EMPTY} focus={focus} theme={appearance.theme} />
+            {alertText && <div role="alert" className="map-alert"><Icon name="info" size={18} /><p>{alertText}</p><CloseButton label="Dismiss message" onClick={dismissAlert} /></div>}
+            <ul className="map-legend"><li><i className="legend-dot nutrition-dot" />Nutrition available</li>{!verifiedOnly && <li><i className="legend-dot other-dot" />No nutrition yet</li>}<li><i className="legend-dot location-dot" />Your pin</li></ul>
+            {mapData && <p className="map-count">{pins.length} restaurant{pins.length === 1 ? "" : "s"} in this result</p>}
+          </div>
+          <div className="map-footnote"><Icon name="info" size={14} /><span>Nutrition is matched by brand. Availability and source prices can vary by branch.</span></div>
+        </main>
+        {chatOpen && <aside id="chat-panel" className="chat-drawer" aria-label="Meal assistant">
+          <header className="chat-heading"><span className="assistant-mark"><Icon name="chat" size={21} /></span><div><h2>Your meal assistant</h2><p>Find a good fit, one bite at a time.</p></div><CloseButton label="Close chat" onClick={() => setChatOpen(false)} /></header>
+          <div className="chat-context"><span><i className="status-dot" />Searching within {formatRadius(radiusMeters)}</span><button type="button" onClick={() => { setShowInspector(true); setInspectorOpen(true); }}>View retrieval details</button></div>
+          <ChatPanel messages={messages} onSend={send} busy={busy} onLocate={item => setFocus({ lat: item.latitude, lng: item.longitude, t: Date.now() })} />
+        </aside>}
+      </div>
+      {showInspector && <div className="inspector-layer"><RagInspector open={inspectorOpen} onToggle={() => setInspectorOpen(value => !value)} onClose={() => { setShowInspector(false); setInspectorOpen(false); }} chat={lastChat} map={mapData} /></div>}
     </div>
   );
 }

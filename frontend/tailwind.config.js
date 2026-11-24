@@ -4,13 +4,13 @@ export default {
   theme: {
     extend: {
       colors: {
-        ink: "#18202B",
-        label: "#FFFFFF",
-        slate: { map: "#E6EAEE", line: "#C9D0D7", mute: "#5C6670" },
-        ube: { DEFAULT: "#5B2A86", soft: "#EFE7F6" },
-        mango: { DEFAULT: "#F2A900", soft: "#FFF4D6" },
-        nodata: "#A3ABB4",
-        warn: "#B42318",
+        ink: "rgb(var(--ink) / <alpha-value>)",
+        label: "rgb(var(--surface) / <alpha-value>)",
+        slate: { map: "rgb(var(--canvas) / <alpha-value>)", line: "rgb(var(--line) / <alpha-value>)", mute: "rgb(var(--muted) / <alpha-value>)" },
+        ube: { DEFAULT: "rgb(var(--primary) / <alpha-value>)", soft: "rgb(var(--soft) / <alpha-value>)" },
+        mango: { DEFAULT: "#F7C15A", soft: "rgb(var(--accent-soft) / <alpha-value>)" },
+        nodata: "rgb(var(--muted) / <alpha-value>)",
+        warn: "rgb(var(--danger) / <alpha-value>)",
       },
       fontFamily: {
         sans: ['"Archivo"', "system-ui", "sans-serif"],

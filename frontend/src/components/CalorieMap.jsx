@@ -20,7 +20,7 @@ function loadMaps() {
 
 function circleIcon(maps, radius, fillColor) {
   return { path: maps.SymbolPath.CIRCLE, scale: radius, fillColor, fillOpacity: 1,
-    strokeColor: "#18202B", strokeWeight: 2 };
+    strokeColor: "#FDEDC9", strokeWeight: 2 };
 }
 
 function BrandMenu({ slug }) {
@@ -39,7 +39,13 @@ function BrandMenu({ slug }) {
     <ul className="mt-2 max-h-48 overflow-y-auto pr-1 text-sm">
       {state.items.map((it) => (
         <li key={it.item_id} className="flex items-baseline justify-between gap-3 border-t border-slate-line py-1">
-          <span>{it.food_item}</span>
+          <span>{it.food_item}<span className="block text-xs text-slate-mute">
+            {it.serving_size} · {it.is_verified ? "Checked against source" : "Unverified"}
+            {it.price_php == null ? " · Price unavailable" : ` · Source price ₱${it.price_php.toFixed(2)}`}
+          </span><span className="block text-xs text-slate-mute">
+            {[["Protein", it.protein_g], ["Carbs", it.carbs_g], ["Fat", it.fat_g]]
+              .map(([name, value]) => `${name} ${value == null ? "unavailable" : `${value} g`}`).join(" · ")}
+          </span></span>
           <span className="num type-cond whitespace-nowrap font-bold">{it.calories} kcal</span>
         </li>
       ))}
@@ -72,7 +78,7 @@ function BranchPopup({ pin }) {
   );
 }
 
-export default function CalorieMap({ location, onMove, onViewport, radiusKm, pins, results, focus, reserveBottom = false }) {
+export default function CalorieMap({ location, onMove, onViewport, radiusKm, pins, results, focus, theme = "light", reserveBottom = false }) {
   const container = useRef(null);
   const initialCenter = useRef(location);
   const [map, setMap] = useState(null);
@@ -97,6 +103,20 @@ export default function CalorieMap({ location, onMove, onViewport, radiusKm, pin
 
   useEffect(() => {
     if (!map) return;
+    map.setOptions({ styles: [
+      ...["poi", "transit.station"].map(featureType => ({ featureType, elementType: "labels", stylers: [{ visibility: "off" }] })),
+      ...(theme === "dark" ? [
+        { elementType: "geometry", stylers: [{ color: "#173A2B" }] },
+        { elementType: "labels.text.fill", stylers: [{ color: "#D5DEC2" }] },
+        { elementType: "labels.text.stroke", stylers: [{ color: "#102A20" }] },
+        { featureType: "road", elementType: "geometry", stylers: [{ color: "#2F513C" }] },
+        { featureType: "water", elementType: "geometry", stylers: [{ color: "#0B2724" }] },
+      ] : []),
+    ] });
+  }, [map, theme]);
+
+  useEffect(() => {
+    if (!map) return;
     function reportBounds() {
       const bounds = map.getBounds()?.toJSON();
       if (bounds) onViewport([bounds.south, bounds.north, bounds.west, bounds.east]
@@ -112,7 +132,7 @@ export default function CalorieMap({ location, onMove, onViewport, radiusKm, pin
     const maps = window.google.maps;
     const marker = new maps.Marker({
       map, position: location, draggable: true, title: "Your search location", zIndex: 3,
-      icon: circleIcon(maps, 9, "#F2A900"),
+      icon: circleIcon(maps, 9, "#F7C15A"),
     });
     const circle = new maps.Circle({ map, center: location, radius: radiusKm * 1000,
       clickable: false, strokeWeight: 1, fillOpacity: 0.05 });
@@ -139,11 +159,11 @@ export default function CalorieMap({ location, onMove, onViewport, radiusKm, pin
     });
     const markers = Array.from(listings.values(), ({ pin, items }) => {
       const result = items[0];
-      const color = result ? "#F2A900" : pin.has_calorie_data ? "#5B2A86" : "#A3ABB4";
+      const color = result ? "#F7C15A" : pin.has_calorie_data ? "#064D2E" : "#687D6C";
       const marker = new maps.Marker({
         map, position: { lat: pin.latitude, lng: pin.longitude }, title: pin.poi_name,
         icon: circleIcon(maps, result ? 17 : 13, color),
-        label: result ? { text: String(result.number), color: "#18202B", fontWeight: "bold" } : null,
+        label: result ? { text: String(result.number), color: "#064D2E", fontWeight: "bold" } : null,
         zIndex: result ? 2 : pin.has_calorie_data ? 1 : 0,
       });
       marker.addListener("click", () => {
@@ -160,9 +180,13 @@ export default function CalorieMap({ location, onMove, onViewport, radiusKm, pin
   return <>
     {/* leave room for the collapsed inspector bar only while it is on screen */}
     <div ref={container} className={`w-full ${reserveBottom ? "h-[calc(100%-2.75rem)]" : "h-full"}`} />
-    {(!key || error) && <p role="alert" className="absolute left-4 top-24 rounded bg-white p-3">
-      {error || "Set VITE_GOOGLE_MAPS_API_KEY in frontend/.env and restart Vite to load Google Maps."}
-    </p>}
+    {(!key || error) && <div className="map-empty" role="status">
+      <div className="empty-illustration"><img src="/brand/icon.svg" alt="" width="56" height="56" /></div>
+      <span className="empty-badge">{error ? "MAP UNAVAILABLE" : "MAP NOT CONFIGURED"}</span>
+      <h3>Your next meal is out there.</h3>
+      <p>{error || "The restaurant map needs a connection to Google Maps. Your meal filters and assistant are ready when it is configured."}</p>
+      <details><summary>Map setup details</summary><p>Set VITE_GOOGLE_MAPS_API_KEY in frontend/.env and restart Vite. Restaurant discovery also requires the server Places key.</p></details>
+    </div>}
     {popup && createPortal(<>
       {popup.pin.has_calorie_data !== undefined ? <BranchPopup pin={popup.pin} /> : <strong>{popup.pin.poi_name}</strong>}
       {popup.items.map(({item, number}) => <p key={item.item_id}>{number}. {item.food_item} · {item.calories} kcal</p>)}

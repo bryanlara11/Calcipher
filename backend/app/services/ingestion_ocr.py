@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_PROFILE = "anongcaloriesnito"
 MAX_CALORIES = 10_000
-UNKNOWN_SERVING = "1 serving"
+UNKNOWN_SERVING = "serving size unavailable"
 
 # ---------------------------------------------------------------------------
 # Canonical text used for embeddings (shared with seed.py — see AGENTS.md invariants)
@@ -39,8 +39,7 @@ UNKNOWN_SERVING = "1 serving"
 def _fmt(value: float | Decimal | None) -> str | None:
     if value is None:
         return None
-    f = float(value)
-    return str(int(f)) if f.is_integer() else f"{f:.1f}"
+    return format(Decimal(str(value)).normalize(), "f")
 
 
 def build_context_string(
@@ -51,12 +50,15 @@ def build_context_string(
     protein_g: float | Decimal | None = None,
     carbs_g: float | Decimal | None = None,
     fat_g: float | Decimal | None = None,
+    price_php: float | Decimal | None = None,
 ) -> str:
     parts = [f"{food_item} from {brand_name} ({serving_size}). {calories} kcal"]
     for label, value in (("protein", protein_g), ("carbs", carbs_g), ("fat", fat_g)):
         formatted = _fmt(value)
         if formatted is not None:
             parts.append(f"{label} {formatted} g")
+    if price_php is not None:
+        parts.append(f"price PHP {price_php:.2f}")
     return "; ".join(parts) + "."
 
 
@@ -64,8 +66,9 @@ def build_context_string(
 # OCR text parsing
 # ---------------------------------------------------------------------------
 
-_NUM = r"(\d{1,5}(?:[.,]\d{1,2})?)"
+_NUM = r"(?<![\d.,])(\d{1,3}(?:,\d{3})+(?![\d,])|\d{1,5}(?:[.,]\d{1,2})?)(?![\d.,])"
 _PRICE = re.compile(r"\+?(?:\bPHP|₱)\s*\d[\d,]*(?:\.\d{2})?", re.I)
+_PRICE_VALUE = re.compile(r"(?:\bPHP|₱)\s*(\d{1,3}(?:,\d{3})+(?:\.\d{1,2})?|\d+(?:\.\d{1,2})?)(?![\d.,])", re.I)
 # Digits OCR often confuses with letters, only when glued to a nutrition unit.
 _OCR_DIGIT_TOKEN = re.compile(r"(?<![A-Za-z0-9])([0-9OoIlS]{2,5})(?=\s*(?:k?cal|calories|g\b))")
 _OCR_DIGIT_MAP = str.maketrans({"O": "0", "o": "0", "I": "1", "l": "1", "S": "5"})
@@ -113,12 +116,15 @@ class ParsedNutrition:
     source_post_url: str | None = None
     is_suspect: bool = False
     warnings: list[str] = field(default_factory=list)
+    price_php: float | None = None
+    price_source_url: str | None = None
+    source_images: list[str] = field(default_factory=list)
 
     @property
     def context_string(self) -> str:
         return build_context_string(
             self.brand_name, self.food_item, self.serving_size, self.calories,
-            self.protein_g, self.carbs_g, self.fat_g,
+            self.protein_g, self.carbs_g, self.fat_g, self.price_php,
         )
 
 
@@ -133,7 +139,7 @@ def fix_ocr_digits(text: str) -> str:
 
 
 def _to_float(raw: str) -> float:
-    return float(raw.replace(",", "."))
+    return float(raw.replace(",", "") if re.fullmatch(r"\d{1,3}(?:,\d{3})+", raw) else raw.replace(",", "."))
 
 
 def _first(patterns: Sequence[re.Pattern[str]], text: str) -> re.Match[str] | None:
@@ -176,7 +182,7 @@ def detect_brand(
 ) -> tuple[str, str] | None:
     """Return (brand_name, brand_slug). Prefers a known catalog brand; else an explicit brand line."""
     handles = " ".join(_HASHTAG_OR_MENTION.findall(caption))
-    for blob in (handles, caption, ocr_text):
+    for blob in (ocr_text, handles, caption):
         slug = matcher.find_in_text(blob.replace("_", " "))
         if slug:
             return display_name(slug, display_names), slug
@@ -234,6 +240,9 @@ def _looks_like_item_name(line: str) -> bool:
         return False
     if _first(_CAL_PATTERNS, line) or any(_first(p, line) for p in _MACRO_PATTERNS.values()):
         return False
+    serving = _first(_SERVING_PATTERNS, line)
+    if serving and serving.start() == 0:
+        return False
     return not _BRAND_LINE.match(line)
 
 
@@ -244,6 +253,7 @@ def parse_nutrition_text(
     *,
     source_post_url: str | None = None,
     display_names: Mapping[str, str] | None = None,
+    include_caption_values: bool = True,
 ) -> list[ParsedNutrition]:
     """Parse one post (caption + OCR of its images) into zero or more catalog rows.
 
@@ -252,7 +262,7 @@ def parse_nutrition_text(
     that follow attach to the current record.
     """
     caption = caption or ""
-    text = fix_ocr_digits(f"{ocr_text or ''}\n{caption}")
+    text = fix_ocr_digits(f"{ocr_text or ''}\n{caption if include_caption_values else ''}")
     brand = detect_brand(caption, ocr_text or "", matcher, display_names)
     if brand is None:
         logger.info("No brand found for post %s", source_post_url)
@@ -263,16 +273,29 @@ def parse_nutrition_text(
     records: list[dict[str, Any]] = []
     last_name: str | None = None
     prev_was_name = False  # was the previous non-blank line part of an item name?
+    pending_serving: str | None = None
     for raw_line in text.splitlines():
         line = _PRICE.sub(" ", raw_line).strip()
         if not line:
             continue
+        if re.search(r"-\d+(?:[.,]\d+)?\s*(?:k?cal|calories)\b|(?:calories|energy|kcal)\s*[:=]?\s*-\d", line, re.I):
+            last_name = None
+            continue
         cal = _first(_CAL_PATTERNS, line)
         if cal:
-            calories = round(_to_float(cal.group(1)))
+            raw_calories = _to_float(cal.group(1))
+            calories = round(raw_calories)
             before = _clean_item_name(line[: cal.start()])
             name = before if _looks_like_item_name(before) else last_name
-            records.append({"food_item": name, "calories": calories, "line": line})
+            records.append({"food_item": name, "calories": calories, "raw_calories": raw_calories, "line": line})
+            prices = [_to_float(m.group(1)) for m in _PRICE_VALUE.finditer(raw_line)]
+            if prices:
+                records[-1]["price_php"] = prices[0]
+                records[-1]["ambiguous_price"] = len(set(prices)) > 1
+            if pending_serving:
+                records[-1]["serving_size"] = pending_serving
+            pending_serving = None
+            last_name = None
             prev_was_name = False
         elif _looks_like_item_name(line):
             candidate = _clean_item_name(line)
@@ -287,13 +310,15 @@ def parse_nutrition_text(
                 prev_was_name = False
         else:
             prev_was_name = False
-        if records:
+        serving = _first(_SERVING_PATTERNS, line)
+        if serving and last_name:
+            pending_serving = re.sub(r"\s+", " ", serving.group(1)).strip()[:100]
+        if records and last_name is None:
             current = records[-1]
             for key, patterns in _MACRO_PATTERNS.items():
                 m = _by_priority(patterns, line)
                 if m and key not in current:
                     current[key] = _to_float(m.group(1))
-            serving = _first(_SERVING_PATTERNS, line)
             if serving and "serving_size" not in current:
                 current["serving_size"] = re.sub(r"\s+", " ", serving.group(1)).strip()[:100]
 
@@ -302,7 +327,7 @@ def parse_nutrition_text(
     for rec in records:
         warnings: list[str] = []
         calories = rec["calories"]
-        if not (0 < calories <= MAX_CALORIES):
+        if not (0 <= calories <= MAX_CALORIES):
             logger.info("Dropping out-of-range calories %s (%s)", calories, source_post_url)
             continue
         food_item = rec.get("food_item")
@@ -320,7 +345,23 @@ def parse_nutrition_text(
             fat_g=rec.get("fat_g"),
             source_post_url=source_post_url,
             warnings=warnings,
+            price_php=rec.get("price_php"),
+            price_source_url=source_post_url if rec.get("price_php") is not None else None,
         )
+        if item.serving_size == UNKNOWN_SERVING:
+            item.warnings.append("missing_serving_size")
+        if item.price_php is not None:
+            item.warnings.append("price_requires_human_review")
+        if rec.get("ambiguous_price"):
+            item.is_suspect = True
+            item.warnings.append("ambiguous_price")
+        if not rec["raw_calories"].is_integer():
+            item.is_suspect = True
+            item.warnings.append("fractional_calories_require_review")
+        matches = {round(_to_float(m.group(1))) for p in _CAL_PATTERNS for m in p.finditer(rec["line"])}
+        if len(matches) > 1:
+            item.is_suspect = True
+            item.warnings.append("ambiguous_calories")
         for key in ("protein_g", "carbs_g", "fat_g"):
             value = getattr(item, key)
             if value is not None and not (0 <= value <= 1000):
@@ -333,6 +374,12 @@ def parse_nutrition_text(
         if key not in seen:
             seen.add(key)
             results.append(item)
+        else:
+            previous = next(i for i in results if (i.food_item.lower(), i.serving_size.lower()) == key)
+            if any(getattr(previous, k) != getattr(item, k) for k in ("calories", "protein_g", "carbs_g", "fat_g", "price_php")):
+                previous.is_suspect = True
+                if "conflicting_source_values" not in previous.warnings:
+                    previous.warnings.append("conflicting_source_values")
     return results
 
 
@@ -345,9 +392,10 @@ def preprocess_image(image: PILImage.Image) -> PILImage.Image:
     """Grayscale -> upscale small images -> denoise -> Otsu binarisation (dark text on white)."""
     from PIL import Image, ImageOps
 
+    image = ImageOps.exif_transpose(image)
     gray = ImageOps.grayscale(image)
     if min(gray.size) < 1000:
-        scale = 1000 / min(gray.size)
+        scale = min(8.0, 1000 / min(gray.size), 6000 / max(gray.size))
         gray = gray.resize((round(gray.width * scale), round(gray.height * scale)), Image.LANCZOS)
     try:
         import cv2
@@ -367,7 +415,7 @@ def preprocess_image(image: PILImage.Image) -> PILImage.Image:
 
 
 # Bump when preprocess_image or the Tesseract config changes, so cached OCR text is redone.
-PREPROCESS_VERSION = "1"
+PREPROCESS_VERSION = "2"
 TESSERACT_CONFIG = "--oem 3 --psm 6"
 _WINDOWS_TESSERACT = (
     Path(r"C:\Program Files\Tesseract-OCR\tesseract.exe"),
@@ -397,29 +445,35 @@ def configure_tesseract(configured: str | None = None) -> str:
     cmd = find_tesseract(configured or get_settings().tesseract_cmd)
     if cmd is None:
         raise TesseractNotFoundError(
-            "Tesseract not found. Install it (Windows: UB Mannheim build) or set TESSERACT_CMD "
+            "Tesseract not found. Install it (macOS: brew install tesseract; Windows: UB Mannheim build) or set TESSERACT_CMD "
             "to the full path of tesseract.exe."
         )
     pytesseract.pytesseract.tesseract_cmd = cmd
     return cmd
 
 
-def tesseract_engine_id(lang: str) -> str:
+def tesseract_config(psm: int = 6) -> str:
+    if psm not in {3, 6, 11}:
+        raise ValueError("OCR page segmentation must be 3 (automatic), 6 (block/table rows), or 11 (sparse text)")
+    return f"--oem 3 --psm {psm}"
+
+
+def tesseract_engine_id(lang: str, psm: int = 6) -> str:
     """Identifies everything that affects OCR output; part of the OCR cache key."""
     import pytesseract
 
     configure_tesseract()
-    return f"tesseract-{pytesseract.get_tesseract_version()}|{lang}|{TESSERACT_CONFIG}|pre{PREPROCESS_VERSION}"
+    return f"tesseract-{pytesseract.get_tesseract_version()}|{lang}|{tesseract_config(psm)}|pre{PREPROCESS_VERSION}"
 
 
-def ocr_image(path: str | Path, *, lang: str = "eng") -> str:
+def ocr_image(path: str | Path, *, lang: str = "eng", psm: int = 6) -> str:
     import pytesseract
     from PIL import Image
 
     configure_tesseract()
     with Image.open(path) as img:
-        prepared = preprocess_image(img.convert("RGB"))
-    return pytesseract.image_to_string(prepared, lang=lang, config=TESSERACT_CONFIG)
+        prepared = preprocess_image(img)
+    return pytesseract.image_to_string(prepared, lang=lang, config=tesseract_config(psm))
 
 
 # ---------------------------------------------------------------------------
@@ -427,7 +481,7 @@ def ocr_image(path: str | Path, *, lang: str = "eng") -> str:
 # ---------------------------------------------------------------------------
 
 _UPDATABLE = ("brand_name", "calories", "protein_g", "carbs_g", "fat_g", "source_post_url",
-              "context_string", "embedding", "embedding_model", "is_verified")
+              "context_string", "embedding", "embedding_model", "is_verified", "price_php", "price_source_url", "source_images")
 
 
 async def upsert_catalog_items(
@@ -436,6 +490,7 @@ async def upsert_catalog_items(
     embedder: Embedder,
     *,
     verified: Sequence[bool] | None = None,
+    commit: bool = True,
 ) -> int:
     """Insert or refresh catalog rows, embedding each with the current embedder.
 
@@ -460,6 +515,9 @@ async def upsert_catalog_items(
             "protein_g": i.protein_g,
             "carbs_g": i.carbs_g,
             "fat_g": i.fat_g,
+            "price_php": i.price_php,
+            "price_source_url": i.price_source_url,
+            "source_images": i.source_images,
             "serving_size": i.serving_size,
             "is_verified": flag,
             "source_post_url": i.source_post_url,
@@ -481,5 +539,6 @@ async def upsert_catalog_items(
             where=None if audited else NutritionCatalog.is_verified.is_(False),
         ).returning(NutritionCatalog.id)
         written += len((await session.execute(stmt)).all())
-    await session.commit()
+    if commit:
+        await session.commit()
     return written
