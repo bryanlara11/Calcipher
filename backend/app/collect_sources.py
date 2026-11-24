@@ -102,10 +102,13 @@ def parse_entry(document: str, url: str, *, brand: str, record_id: str, collecte
     original = page.get("citation")
     if not isinstance(original, str) or urlparse(original).scheme not in {"https", "http"}:
         raise ValueError("An original source link is required")
+    owner = "anongcaloriesnito" if (urlparse(original).hostname in {"instagram.com", "www.instagram.com"}
+        and re.search(r"Credit:\s*@anongcaloriesnito\b", html.unescape(re.sub(r"<[^>]+>", " ", document)), re.I)) else None
     return dict(record_id=record_id, brand_name=brand, food_item=name, calories=int(calories), **macros,
                 serving_size=serving, price_php=None, price_source_url=None, source_post_url=original,
                 secondary_source_url=url, source_classification=classification, collected_at=collected_at,
                 permission_reference=permission_reference, verification_status="pending", reviewed_by=None,
+                source_account=owner,
                 reviewed_at=None, raw_nutrition=nutrition, source_images=[], source_listing_updated_at=page.get("dateModified"),
                 notes="Collected from the visible Philippine entry. Original serving and values require human review; no current PHP price is established.",
                 field_sources={k: url for k in ["food_item", "calories", "protein_g", "carbs_g", "fat_g", "serving_size"]})
@@ -139,6 +142,8 @@ def collect_entries(entries: list[dict], output: Path, *, permission_reference: 
             row = parse_entry(response.text, url, brand=e["brand_name"], record_id=e["record_id"],
                               collected_at=datetime.now(ZoneInfo("Asia/Manila")).date().isoformat(),
                               permission_reference=permission_reference)
+            if row["source_account"] != "anongcaloriesnito":
+                raise CollectionStopped("This entry is not credited to the allowed Instagram account; collection stopped")
             digest = hashlib.sha256(response.content).hexdigest()
             snapshot = snapshots / f"{hashlib.sha256(url.encode()).hexdigest()[:16]}.html"
             snapshot.write_bytes(response.content)

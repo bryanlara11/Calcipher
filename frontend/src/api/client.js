@@ -30,10 +30,10 @@ async function request(path, options = {}) {
   return body;
 }
 
-export function chat({ message, lat, lng, radiusKm, signal, provider }) {
+export function chat({ message, lat, lng, radiusKm, signal, provider, filters }) {
   return request("/api/v1/chat", {
     method: "POST",
-    body: JSON.stringify({ message, lat, lng, radius_km: radiusKm }),
+    body: JSON.stringify({ message, lat, lng, radius_km: radiusKm, ...(filters ? { filters } : {}) }),
     signal,
     headers: { "Content-Type": "application/json", "X-CalCipher-Map-Provider": provider ?? "osm" },
   });
@@ -62,4 +62,8 @@ export function brandItems(slug, { signal, includePending = false } = {}) {
 
 export function health() {
   return request("/api/v1/health");
+}
+
+export function catalogSummary({ signal } = {}) {
+  return request("/api/v1/catalog-summary", { signal });
 }

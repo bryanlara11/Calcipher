@@ -61,6 +61,7 @@ class NutritionCatalog(Base):
     serving_size: Mapped[str | None] = mapped_column(String(100), nullable=True)
     provenance: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default="{}")
     is_verified: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
     source_post_url: Mapped[str | None] = mapped_column(Text)
     context_string: Mapped[str] = mapped_column(Text, nullable=False)
     embedding: Mapped[list[float] | None] = mapped_column(Vector(EMBEDDING_DIM))

@@ -1,1 +1,1 @@
-{"name":"CalCipher","short_name":"CalCipher","start_url":"/","display":"standalone","background_color":"#FDEDC9","theme_color":"#064D2E","icons":[{"src":"/brand/icon.svg","sizes":"any","type":"image/svg+xml","purpose":"any maskable"}]}
+{"name":"CalCipher","short_name":"CalCipher","start_url":"/","display":"standalone","background_color":"#FFFFFF","theme_color":"#5B8219","icons":[{"src":"/brand/icon-192.png","sizes":"192x192","type":"image/png","purpose":"any"},{"src":"/brand/icon-512.png","sizes":"512x512","type":"image/png","purpose":"any"}]}

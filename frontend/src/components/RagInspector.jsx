@@ -76,7 +76,7 @@ export default function RagInspector({ open, onToggle, onClose, chat, map }) {
         >
           <span className="truncate">Retrieval inspector</span>
           <span className="shrink-0 text-sm font-normal text-slate-mute">
-            {insp ? `${insp.candidate_count} candidates, ${insp.timings_ms.total?.toFixed(0)} ms` : "No search yet"}
+            {insp ? `${insp.candidate_count} approved, ${insp.catalog_candidate_count ?? 0} pending, ${insp.timings_ms.total?.toFixed(0)} ms` : "No search yet"}
             <span aria-hidden="true" className="ml-2 inline-block">{open ? "▾" : "▴"}</span>
           </span>
         </button>
@@ -120,7 +120,8 @@ export default function RagInspector({ open, onToggle, onClose, chat, map }) {
             <div>
               <h2 className="mb-1 font-bold">Hybrid retrieval</h2>
               <dl className="text-sm">
-                <Row k="Rows passing SQL filters">{insp.candidate_count}</Row>
+                <Row k="Approved matches">{insp.candidate_count}</Row>
+                <Row k="Pending catalog matches">{insp.catalog_candidate_count ?? 0}</Row>
                 <Row k="Attempts (incl. relaxation)">{insp.retrieval_attempts}</Row>
                 <Row k="Embedder">{insp.embedder}</Row>
                 <Row k="Recommendation rendering">{insp.generator_used === "llm" ? "Stored facts + Gemini selection" : "Stored facts template"}</Row>

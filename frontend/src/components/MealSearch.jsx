@@ -12,7 +12,12 @@ export default function MealSearch({ onSearch, busy, savedValues, onValuesChange
   const setValues = onValuesChange ?? setLocalValues;
   const [expanded, setExpanded] = useState(false);
   const field = name => ({ value: values[name], onChange: event => setValues(v => ({ ...v, [name]: event.target.value })) });
-  return <form className="meal-search" onSubmit={event => { event.preventDefault(); if (!busy) onSearch(buildMealQuery(values)); }}>
+  return <form className="meal-search" onSubmit={event => {
+    event.preventDefault();
+    if (!busy) onSearch(buildMealQuery(values), Object.fromEntries([
+      ["max_calories", values.calories], ["min_protein_g", values.protein], ["max_price_php", values.budget],
+    ].filter(([, value]) => value !== "").map(([key, value]) => [key, Number(value)])));
+  }}>
     <label className="field food-field"><span>Food or dish</span>
       <div className="input-with-icon"><Icon name="search" size={18} /><input maxLength={300} placeholder="Chicken, noodles, or a snack" {...field("food")} /></div>
     </label>

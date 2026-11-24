@@ -1,10 +1,13 @@
 export function BrandLogo({ className = "", decorative = false }) {
-  return <img src="/brand/calcipher-logo.webp" width="512" height="512"
-    alt={decorative ? "" : "CalCipher culinary logo"} className={`brand-logo ${className}`} />;
+  return <img src="/brand/calcipher-avocado-logo.webp" width="768" height="576"
+    alt={decorative ? "" : "CalCipher logo"} className={`brand-logo ${className}`} />;
 }
 
 export function Icon({ name, size = 20, ...props }) {
   const paths = {
+    calendar: <><rect x="3" y="5" width="18" height="16" rx="2" /><path d="M16 3v4M8 3v4M3 11h18m-12 4h6m-6 3h3" /></>,
+    home: <><path d="m3 10 9-7 9 7v11H3Z" /><path d="M9 21v-8h6v8" /></>,
+    heart: <path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1.1-1.1a5.5 5.5 0 0 0-7.8 7.8L12 21l8.8-8.6a5.5 5.5 0 0 0 0-7.8Z" />,
     search: <><circle cx="10.5" cy="10.5" r="6.5" /><path d="m16 16 4.5 4.5" /></>,
     pin: <><path d="M20 10c0 6-8 12-8 12S4 16 4 10a8 8 0 1 1 16 0Z" /><circle cx="12" cy="10" r="2.5" /></>,
     chat: <path d="M21 11.5a8.5 8.5 0 0 1-8.5 8.5H4l-2 2v-9.5A8.5 8.5 0 0 1 10.5 4h2a8.5 8.5 0 0 1 8.5 7.5Z" />,

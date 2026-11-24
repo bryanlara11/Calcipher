@@ -32,12 +32,20 @@ class SearchConstraints(BaseModel):
 # ---------- requests ----------
 
 
+class MealFilters(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    max_calories: int | None = Field(None, ge=0, le=10_000)
+    min_protein_g: float | None = Field(None, ge=0, le=500, allow_inf_nan=False)
+    max_price_php: float | None = Field(None, ge=0, le=99999999.99, allow_inf_nan=False)
+
+
 class ChatRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
     message: str = Field(min_length=1, max_length=MAX_QUERY_LENGTH)
     lat: Latitude
     lng: Longitude
+    filters: MealFilters | None = None
     radius_km: float | None = Field(
         None, gt=0, le=MAX_DISTANCE_KM, description="Default search radius if the message names none"
     )
@@ -109,6 +117,7 @@ class InspectorTrace(BaseModel):
     discovery: list[DiscoveryTrace]
     embedder: str
     candidate_count: int
+    catalog_candidate_count: int = 0
     retrieval_attempts: int
     generator_used: Literal["llm", "template"]
     timings_ms: dict[str, float]
@@ -120,6 +129,7 @@ class InspectorTrace(BaseModel):
 class ChatResponse(BaseModel):
     answer: str
     results: list[RetrievedItem]
+    catalog_matches: list[RetrievedItem] = Field(default_factory=list)
     relaxation: RelaxationInfo
     inspector: InspectorTrace
 

@@ -4,29 +4,35 @@ Run commands below from `backend/`, using `.venv/bin/python` on macOS/Linux. Kee
 receipts and review exports under the git-ignored `backend/data/`. Do not commit credentials or
 an Instagram session. The application must never treat an extraction as human approval.
 
-## Evidence from the 2026-11-25 pilot
+## Current source scope (2026-11-25)
 
-- The operator attested permission for both sources, the listed collection methods and reuse.
-  This is an operator attestation, not an independently inspected owner permission document.
-- One bounded Instaloader attempt failed with `BadResponseException: Fetching Post metadata
-  failed`. Python Instagram media/caption retrieval was **not demonstrated**. The exception is
-  now handled as a clean stop. Do not retry around an authentication/rate-limit restriction.
-- Two original Instagram posts were inspected in a normal public browser. One complete
-  eight-image carousel, its caption, date and post URL were retrieved and imported locally:
-  <https://www.instagram.com/p/DYUCaaOklAh/>. Army Navy post
-  <https://www.instagram.com/p/DUi0Ptmku0e/> was only partially inspected; its complete media
-  download was not demonstrated. Do not count it as a complete retrieved post.
-- Secondary-source collection inspected six brand pages and 54 item pages. Thirty-six retained
-  candidates cover 7-Eleven, Army Navy, Chowking, Mang Inasal, McDonald's and KFC. Visible HTML
-  and JSON-LD agree for 36 calorie, nine protein, six carbohydrate and six fat values. Six KFC
-  records were additionally compared with the original official table:
-  <https://corporate.kfc.com.ph/nutrition-and-allergen-information/>.
-- Thirty candidates are community-reported and six official. Thirty serving sizes remain null;
-  the six KFC records retain the table's explicit `1 serving`. There are zero checked current
-  PHP prices. Historical photographed prices were deliberately not imported as current prices.
-- All 36 were actually loaded into the persistent catalog as **pending**, not merely saved to
-  files. None is approved while the operator's specific approved record IDs are outstanding.
-  The minimum of 30 approved records has therefore not yet been achieved.
+The selected nutrition source is **@anongcaloriesnito only**. The collector requires an original
+Instagram post link and visible credit to that account. Source-linked secondary transcriptions
+retain both URLs and snapshot hashes; their values still require personal source review.
+
+There are 97 active pending records across 17 brands. Six KFC records from a separate official
+corporate table are archived in the existing database and excluded from menus, maps and retrieval.
+The earlier 36/60-record exports are historical and do not define the current active catalog.
+No approval flags were changed. Current active completeness: 97 calorie values, three protein
+values, zero carbohydrate/fat values and zero checked current PHP prices.
+
+The operator attested permission covering collection methods and facts/media reuse. This is an
+operator attestation, not an independently inspected owner permission document, and does not
+constitute nutrition review. No specific approved record IDs have been supplied.
+
+One bounded Instaloader attempt failed with `BadResponseException: Fetching Post metadata failed`.
+Python Instagram retrieval remains unproven. Normal public-browser inspection covered five
+original posts: a complete 7-Eleven eight-slide carousel, partial Army Navy, Mary Grace,
+Tim Ho Wan and Good Habits Cafe. Do not claim every original post was inspected. The Tim Ho Wan
+food illustration is a screenshot of a displayed source slide; other labelled covers use downloaded
+source media. Historical photographed prices were not imported as current prices.
+
+The distributable pending facts are in `data/catalog/anongcaloriesnito.pending.json`, with no
+credentials, raw snapshots, private receipts or approvals. See that folder's README for loading.
+`app.services.source_scope` checks original candidate files against retained snapshot hashes and
+visible credit; `--apply` updates active/archive status and rematches branches without deleting
+rows or changing approval. Re-run the audit after any legacy/manual import. Distributable JSON
+omits machine-specific snapshot paths; use the original local collection batches for this audit.
 
 ## Choose an authorized method
 
@@ -62,8 +68,7 @@ visible nutrition against JSON-LD. New output paths preserve previous evidence.
 .venv/bin/python -m app.collect_sources --urls-file ../docs/examples/pilot-source-urls.json --output data/new-batch/candidates.json --permission-reference YOUR_DOCUMENTED_REFERENCE
 ```
 
-The module was actually exercised against one public 7-Eleven item: one collected, zero approved.
-Its parser also checked all 36 retained pilot snapshots. These are separate from mocked tests.
+The collector was exercised against bounded public item batches. Snapshot parsing and source-scope checks are separate from mocked tests. All current records remain pending.
 Review [terms](https://worththecals.com/terms) and [methodology](https://worththecals.com/methodology).
 
 ## Manual originals, captions and OCR
@@ -105,7 +110,7 @@ OCR accuracy claim or production approval follows from these results.
 The header-only `docs/examples/manual-review.template.csv` also supports direct manual review.
 Candidate JSON preserves each value's URL in `field_sources`, original/secondary source URLs,
 classification, collection date, media filenames and snapshot hashes. Missing values are JSON
-null. The pilot review page exposes all 36 record IDs and links for personal source checking.
+null. The current account-scoped review export exposes all 97 active record IDs and source links.
 
 ```sh
 .venv/bin/python -m app.services.source_review --candidates data/new-batch/candidates.json --output data/new-batch/review/pending.csv
@@ -124,7 +129,10 @@ nothing. Do not use example IDs as approval or alter the JSON after review.
 ```
 
 Pending records may be stored for review. Recommendation retrieval and default map/menu
-responses exclude them. Nearby explicitly requests `include_pending=true` to browse catalog
+responses exclude them. Chat may expose exact-filtered pending records in a separate
+`catalog_matches` array when no approved result exists; these are labelled previews, never
+approved recommendations. Its `results` array and factual recommendation generator remain
+approved-only. Nearby explicitly requests `include_pending=true` to browse catalog
 locations and menu records with pending-review labels; it keeps `include_unmatched=false` so
 unrelated places stay hidden. `has_calorie_data` and approved nutrition counts still describe
 reviewed records only. Branch matching can link pending catalog brands without approving facts. Approval preserves community/estimated classification; it does not make a
@@ -162,3 +170,24 @@ mocked network responses prove safeguards, not live acquisition or live recommen
 Live source logs, image OCR, source consistency checks and persistent DB/API checks are reported
 separately. No real approved recommendation demonstration can be claimed until approved IDs
 are supplied and promoted. No affordability success can be claimed with zero checked prices.
+
+## Expanded catalog batch, 2026-11-25
+
+A further 24 source-backed records were collected with the same bounded collector and imported
+as pending: six each for Jollibee, Burger King, Popeyes and World Chicken. Visible calories and
+structured data were checked by the collector; no missing macros, servings or prices were inferred.
+The persistent catalog now has 60 records across ten brands, with zero approvals and zero checked
+current PHP prices. The original 36-record snapshot remains intact. The new batch SHA-256 is
+`11e88f4ac88d88b3e13bb108a01afa2524e2a348d6d07a3f0cf1de5cbf776ca8`.
+
+To reproduce a fresh pending batch from explicit public source URLs, from `backend/`:
+
+```sh
+.venv/bin/python -m app.collect_sources --urls-file ../docs/examples/catalog-expansion-source-urls.json --output data/expansion-recheck/candidates.json --permission-reference YOUR_DOCUMENTED_REFERENCE
+.venv/bin/python -m app.services.source_review --candidates data/expansion-recheck/candidates.json --output data/expansion-recheck/review/pending.csv
+.venv/bin/python -m app.ingest --data-dir data/expansion-recheck load --file data/expansion-recheck/review/pending.csv --dry-run
+.venv/bin/python -m app.ingest --data-dir data/expansion-recheck load --file data/expansion-recheck/review/pending.csv
+```
+
+This stores pending records and updates branch matching; it does not approve recommendations.
+If the source changes, preserve the new snapshot separately and review that version explicitly.

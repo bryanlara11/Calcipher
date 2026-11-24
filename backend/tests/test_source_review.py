@@ -233,3 +233,101 @@ async def test_pending_catalog_browsing_links_branches_without_approving_recomme
     browsing = await brand_items(db_session, "synthetic pending", include_pending=True)
     assert len(browsing) == 1 and not browsing[0].is_verified
     assert (await db_session.execute(select(NutritionCatalog.is_verified))).scalar_one() is False
+
+
+@pytest.mark.db
+async def test_chat_catalog_previews_obey_brand_nutrition_location_and_budget_without_approval(db_session):
+    from app.services.brand_matcher import BrandRegistry
+    from tests.test_hybrid_rag import make_service
+    from app.schemas import MealFilters
+    from app.security import MacroPhysicsError
+    await add_item(db_session, brand_name="KFC", brand_slug="kfc", food_item="Pending chicken",
+                   calories=420, protein_g=30, verified=False)
+    await add_item(db_session, brand_name="KFC", brand_slug="kfc", food_item="Above calorie cap",
+                   calories=700, protein_g=35, verified=False)
+    await add_item(db_session, brand_name="Other", brand_slug="other", food_item="Different brand",
+                   calories=350, protein_g=25, verified=False)
+    await add_branch(db_session, osm_id=911, poi_name="KFC Test", lat=UPM_LAT, lng=UPM_LNG, slug="kfc")
+    await add_branch(db_session, osm_id=912, poi_name="Other Test", lat=UPM_LAT, lng=UPM_LNG, slug="other")
+    service = make_service()
+    service.brands = BrandRegistry(await load_brand_matcher(db_session, include_pending=True))
+    response = await service.chat(db_session, message="KFC under 500 kcal at least 20g protein within 1 km", lat=UPM_LAT, lng=UPM_LNG)
+    assert response.results == [] and len(response.catalog_matches) == 1
+    preview = response.catalog_matches[0]
+    assert preview.food_item == "Pending chicken" and not preview.is_verified
+    assert preview.calories <= 500 and preview.protein_g >= 20 and preview.distance_km <= 1
+    assert "pending review" in response.answer and not response.relaxation.applied
+    assert response.inspector.catalog_candidate_count == 1
+    selected = await service.chat(db_session, message="KFC under 800 kcal", lat=UPM_LAT, lng=UPM_LNG,
+                                  filters=MealFilters(max_calories=500, min_protein_g=20))
+    assert selected.inspector.constraints.max_calories == 500
+    assert len(selected.catalog_matches) == 1 and selected.catalog_matches[0].calories <= 500
+    with pytest.raises(MacroPhysicsError):
+        await service.chat(db_session, message="KFC", lat=UPM_LAT, lng=UPM_LNG,
+                           filters=MealFilters(max_calories=100, min_protein_g=100))
+    for query in ["KFC under PHP250", "KFC under 400 kcal"]:
+        empty = await service.chat(db_session, message=query, lat=UPM_LAT, lng=UPM_LNG)
+        assert not empty.results and not empty.catalog_matches
+    await add_item(db_session, brand_name="KFC", brand_slug="kfc", food_item="Reviewed chicken",
+                   calories=430, protein_g=30, verified=True)
+    approved = await service.chat(db_session, message="KFC under 500 kcal", lat=UPM_LAT, lng=UPM_LNG)
+    assert len(approved.results) == 1 and approved.results[0].is_verified
+    assert approved.catalog_matches == []
+
+
+@pytest.mark.db
+async def test_home_catalog_summary_reports_counts_without_private_provenance(db_session):
+    from app.main import create_app
+    from app.db.session import get_session
+    await add_item(db_session, brand_name="Synthetic pending", brand_slug="pending", food_item="Pending bowl", calories=420, verified=False)
+    await add_item(db_session, brand_name="Synthetic checked", brand_slug="checked", food_item="Checked bowl", calories=450, verified=True)
+    app = create_app()
+    async def session_override():
+        yield db_session
+    app.dependency_overrides[get_session] = session_override
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.get("/api/v1/catalog-summary")
+    assert response.status_code == 200
+    assert response.json() == {"records": 2, "brands": 2, "reviewed": 1, "pending": 1}
+
+
+def test_account_scope_requires_original_instagram_credit_and_snapshot_integrity(tmp_path):
+    from app.services.source_scope import allowed_candidate
+    snapshot = tmp_path / "source.html"
+    raw = b"<p>Credit: @anongcaloriesnito</p>"
+    snapshot.write_bytes(raw)
+    row = {"record_id": "SYNTHETIC", "source_post_url": "https://www.instagram.com/p/synthetic/",
+           "snapshot_path": str(snapshot), "snapshot_sha256": hashlib.sha256(raw).hexdigest()}
+    assert allowed_candidate(row, tmp_path)
+    assert not allowed_candidate({**row, "source_post_url": "https://example.test/brand-table"}, tmp_path)
+    snapshot.write_bytes(b"<p>Credit: @someone_else</p>")
+    with pytest.raises(ValueError, match="hash mismatch"):
+        allowed_candidate(row, tmp_path)
+    row["snapshot_sha256"] = hashlib.sha256(snapshot.read_bytes()).hexdigest()
+    assert not allowed_candidate(row, tmp_path)
+
+
+@pytest.mark.db
+async def test_archived_source_records_are_excluded_without_deleting_review_state(db_session):
+    from sqlalchemy import update
+    await add_item(db_session, brand_name="Synthetic Archived", brand_slug="archived", food_item="Archived bowl", calories=400, verified=True)
+    await add_branch(db_session, osm_id=9991, poi_name="Synthetic Archived", lat=UPM_LAT, lng=UPM_LNG, slug="archived")
+    await db_session.execute(update(NutritionCatalog).values(is_active=False))
+    await db_session.commit()
+    assert await brand_items(db_session, "archived", include_pending=True) == []
+    assert await nearby_branches(db_session, lat=UPM_LAT, lng=UPM_LNG, radius_km=1, include_unmatched=False, include_pending=True) == []
+    assert len(await load_brand_matcher(db_session, include_pending=True)) == 0
+    assert len(await load_brand_matcher(db_session, include_pending=True, include_archived=True)) == 1
+    result = await retrieve(db_session, lat=UPM_LAT, lng=UPM_LNG, constraints=SearchConstraints(), query_vec=HashingEmbedder().embed_one("bowl"))
+    assert result.items == []
+    assert (await db_session.execute(select(NutritionCatalog.is_verified))).scalar_one() is True
+
+
+def test_collector_does_not_import_records_outside_selected_account(tmp_path):
+    def handler(request):
+        return httpx.Response(200, text="User-agent: *\nAllow: /\n" if request.url.path == "/robots.txt" else _page())
+    output = tmp_path / "outside.json"
+    with pytest.raises(CollectionStopped, match="allowed Instagram account"):
+        collect_entries([{"record_id":"SYNTHETIC","brand_name":"Synthetic Chain","url":"https://worththecals.com/calories/test"}],
+                        output, permission_reference="synthetic", client=httpx.Client(transport=httpx.MockTransport(handler)), delay_s=0)
+    assert not output.exists()

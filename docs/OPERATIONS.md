@@ -317,15 +317,22 @@ and execution evidence is in [AUDIT.md](AUDIT.md). The added test runner is patc
 
 ## Branded interface and appearance
 
-The navigation uses the supplied culinary logo, optimized as WebP without changing its artwork
-or proportions. A separate cloche/chart SVG is the simplified favicon and app icon. Light mode
-uses warm cream/forest green; dark mode uses black surfaces and muted sage-green text. Maps retain their natural provider colors. Both use shared semantic
-tokens in `src/index.css`, mapped through Tailwind, including map popups, forms, cards and inspector. Sidebar navigation has no numbers or repeated brand text; only the main logo remains above it. Settings groups appearance, restaurant locations, nutrition/prices and optional Google setup. Reconnect to API clears an old connection failure after the backend restarts.
+The supplied avocado logo is used for navigation, Home, splash and browser/app icons, with
+transparency and proportions preserved. Both themes use avocado accent #5B8219. Light surfaces
+are white; Dark uses black backgrounds, shaded panels, white headings and gray body text. Maps
+retain natural provider colors. Navigation has no numbered labels or repeated brand text.
+
+Home explains the workflow and is the only navigation entry to About menu data. Search finds
+meals and keeps its own results; Nearby groups branches by brand; Chat shares Nearby's search
+area. Meal Plan saves dated Breakfast/Lunch/Dinner/Snack choices and reports known nutrition
+with missing values called out. Favorites stores restaurants locally. Both use browser storage,
+not an account or cloud backup. Settings contains appearance, map connection and privacy only.
+
 Use **Settings → Appearance** for Light, Dark or System. Preference is saved under
-`calcipher.theme`; System responds to OS changes. A small script runs in the document head before
-React to avoid a wrong-theme flash. Storage failure falls back to the current visit. Escape closes
-retrieval details or map filters. Search, Nearby, Chat and Settings have separate hash URLs and
-support browser Back/Forward. Nutrition and area controls are disclosed on demand at every size.
+`calcipher.theme`; System responds to OS changes. Storage failure falls back to the current visit.
+The mobile bottom navigation and responsive panels support phone, tablet and laptop breakpoints.
+Pending records never acquire an approval seal: a reviewed record must also meet the selected
+calorie/protein goals before displaying the Healthy badge.
 
 Frontend verification uses Node 22 LTS. npm 10 encountered an optional-peer resolver error with
 current test tooling during setup; the verified toolchain uses npm 11 without a global install:

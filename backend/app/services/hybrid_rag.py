@@ -23,6 +23,7 @@ from app.schemas import (
     ChatResponse,
     DiscoveryTrace,
     InspectorTrace,
+    MealFilters,
     RelaxationInfo,
     RetrievedItem,
     SearchConstraints,
@@ -75,7 +76,7 @@ candidates AS (
            (n.embedding <=> CAST(:query_vec AS vector)) AS cosine_distance
     FROM nutrition_catalog AS n
     JOIN nearby AS nb ON nb.matched_brand_slug = n.brand_slug
-    WHERE n.is_verified
+    WHERE n.is_active AND n.is_verified = CAST(:verified AS boolean)
       AND nb.distance_km <= :max_distance_km
       AND (CAST(:max_cal AS integer) IS NULL OR n.calories <= CAST(:max_cal AS integer))
       AND (CAST(:min_protein AS numeric) IS NULL OR n.protein_g >= CAST(:min_protein AS numeric))
@@ -109,7 +110,7 @@ catalog AS (
            MIN(calories) FILTER (WHERE is_verified) AS min_calories,
            MAX(protein_g) FILTER (WHERE is_verified) AS max_protein_g
     FROM nutrition_catalog
-    WHERE is_verified OR CAST(:include_pending AS boolean)
+    WHERE is_active AND (is_verified OR CAST(:include_pending AS boolean))
     GROUP BY brand_slug
 )
 SELECT nb.*, c.brand_name, COALESCE(c.item_count, 0) AS item_count, c.min_calories,
@@ -136,7 +137,7 @@ BRAND_ITEMS_SQL = text(
 SELECT id AS item_id, brand_name, food_item, calories, protein_g, carbs_g, fat_g, serving_size,
        is_verified, source_post_url, price_php, price_source_url, source_images, provenance
 FROM nutrition_catalog
-WHERE brand_slug = :brand_slug AND (is_verified OR CAST(:include_pending AS boolean))
+WHERE brand_slug = :brand_slug AND is_active AND (is_verified OR CAST(:include_pending AS boolean))
 ORDER BY calories ASC
 LIMIT 100
 """
@@ -169,6 +170,7 @@ async def retrieve(
     query_vec: Sequence[float],
     places: list[dict] | None = None,
     k: int = TOP_K,
+    pending_only: bool = False,
 ) -> RetrievalResult:
     min_lat, max_lat, min_lng, max_lng = bounding_box(lat, lng, constraints.max_distance_km)
     params = {
@@ -185,6 +187,7 @@ async def retrieve(
         "target_brand": constraints.target_brand,
         "query_vec": to_pgvector_literal(list(query_vec)),
         "k": k,
+        "verified": not pending_only,
     }
     query = RETRIEVAL_SQL
     if places is not None:
@@ -335,6 +338,7 @@ class HybridRagService:
         lng: float,
         default_radius_km: float | None = None,
         request_id: str | None = None,
+        filters: MealFilters | None = None,
     ) -> ChatResponse:
         timings: dict[str, float] = {}
         t0 = time.perf_counter()
@@ -350,6 +354,8 @@ class HybridRagService:
         parse_kwargs = {"default_distance_km": default_radius_km} if default_radius_km else {}
         parsed = await self.parser.parse(sanitized.text, self.brands.matcher, **parse_kwargs)
         constraints = parsed.constraints
+        if filters is not None:
+            constraints = constraints.model_copy(update=filters.model_dump(exclude_none=True))
         validate_macro_physics(constraints)
         t = lap("parse", t0)
 
@@ -392,12 +398,24 @@ class HybridRagService:
                     )
                     break
             relaxation.final_constraints = final
+        catalog = RetrievalResult([], 0)
+        if not result.items:
+            catalog = await retrieve(
+                session, lat=lat, lng=lng, constraints=constraints, query_vec=query_vec,
+                places=discoveries[0].places, pending_only=True,
+            )
         t = lap("retrieval", t)
 
         # Stage 4b: grounded generation.
         answer, generator_used = await self.generator.generate(
             sanitized.text, result.items, final, relaxation.notice, original_constraints=constraints
         )
+        if catalog.items:
+            answer = (
+                f"I found {len(catalog.items)} catalog matches within {constraints.max_distance_km:g} km of your pin. "
+                "These source records are pending review. You can browse them here or in Nearby; "
+                "they are not approved meal recommendations yet."
+            )
         lap("generation", t)
         timings["total"] = round((time.perf_counter() - t0) * 1000, 2)
 
@@ -411,11 +429,13 @@ class HybridRagService:
             discovery=[_trace(d, self.discovery) for d in discoveries],
             embedder=self.embedder.name,
             candidate_count=result.candidate_count,
+            catalog_candidate_count=catalog.candidate_count,
             retrieval_attempts=attempts,
             generator_used=generator_used,
             timings_ms=timings,
         )
-        return ChatResponse(answer=answer, results=result.items, relaxation=relaxation, inspector=inspector)
+        return ChatResponse(answer=answer, results=result.items, catalog_matches=catalog.items,
+                            relaxation=relaxation, inspector=inspector)
 
     async def map_items(
         self, session: AsyncSession, *, lat: float, lng: float, radius_km: float, include_unmatched: bool, viewport=None,

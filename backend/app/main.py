@@ -78,7 +78,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings: Settings = app.state.settings
     engine = get_engine()
     app.state.db_caps = await init_db(engine) if settings.auto_create_schema else {}
-    brands = BrandRegistry()
+    brands = BrandRegistry(include_pending=True, include_archived=True)
     async with get_sessionmaker()() as session:
         await brands.refresh(session)
         from app.db.maintenance import rematch_branches
@@ -219,6 +219,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "google_places_configured": bool(settings.google_places_api_key),
         }
 
+    @app.get("/api/v1/catalog-summary")
+    async def catalog_summary(session: SessionDep) -> dict[str, int]:
+        row = (await session.execute(text("""
+            SELECT count(*) AS records, count(DISTINCT brand_slug) AS brands,
+                   count(*) FILTER (WHERE is_verified) AS reviewed,
+                   count(*) FILTER (WHERE NOT is_verified) AS pending
+            FROM nutrition_catalog WHERE is_active
+        """))).mappings().one()
+        return dict(row)
+
     @app.post("/api/v1/chat", response_model=ChatResponse)
     async def chat(body: ChatRequest, request: Request, session: SessionDep, rag: RagDep) -> ChatResponse:
         return await rag.chat(
@@ -227,6 +237,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             lat=body.lat,
             lng=body.lng,
             default_radius_km=body.radius_km,
+            filters=body.filters,
             request_id=request.state.request_id,
         )
 

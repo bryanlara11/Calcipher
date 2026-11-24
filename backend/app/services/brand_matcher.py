@@ -191,10 +191,12 @@ class BrandMatcher:
         return None
 
 
-async def load_brand_matcher(session: AsyncSession, *, include_pending: bool = False) -> BrandMatcher:
+async def load_brand_matcher(session: AsyncSession, *, include_pending: bool = False, include_archived: bool = False) -> BrandMatcher:
     from app.models import NutritionCatalog
 
     query = select(NutritionCatalog.brand_slug).distinct()
+    if not include_archived:
+        query = query.where(NutritionCatalog.is_active.is_(True))
     if not include_pending:
         query = query.where(NutritionCatalog.is_verified.is_(True))
     rows = await session.execute(query)
@@ -204,10 +206,11 @@ async def load_brand_matcher(session: AsyncSession, *, include_pending: bool = F
 class BrandRegistry:
     """In-memory cache of the current BrandMatcher so request parsing needs no DB round trip."""
 
-    def __init__(self, matcher: BrandMatcher | None = None, *, max_age_s: float = 300.0, include_pending: bool = False) -> None:
+    def __init__(self, matcher: BrandMatcher | None = None, *, max_age_s: float = 300.0, include_pending: bool = False, include_archived: bool = False) -> None:
         self._matcher = matcher or BrandMatcher([])
         self.max_age_s = max_age_s
         self.include_pending = include_pending
+        self.include_archived = include_archived
         self._loaded_at = time.monotonic() if matcher is not None else float("-inf")
 
     @property
@@ -215,7 +218,7 @@ class BrandRegistry:
         return self._matcher
 
     async def refresh(self, session: AsyncSession) -> BrandMatcher:
-        self._matcher = await load_brand_matcher(session, include_pending=self.include_pending)
+        self._matcher = await load_brand_matcher(session, include_pending=self.include_pending, include_archived=self.include_archived)
         self._loaded_at = time.monotonic()
         return self._matcher
 

@@ -5,7 +5,7 @@ import "leaflet/dist/leaflet.css";
 import { BranchPopup } from "./MapPopup.jsx";
 import { mergeListings } from "./mapListings.js";
 
-export default function OsmMap({ location, onMove, onViewport, radiusKm, pins, results, focus }) {
+export default function OsmMap({ location, onMove, onViewport, radiusKm, pins, results, focus, goals, isFavorite, onToggleFavorite }) {
   const container = useRef(null);
   const initialCenter = useRef(location);
   const tiles = useRef(null);
@@ -70,7 +70,7 @@ export default function OsmMap({ location, onMove, onViewport, radiusKm, pins, r
     <div ref={container} className="osm-map" role="region" aria-label="Restaurant map. Use arrow keys to pan, plus and minus to zoom." />
     {tileError && <div className="tile-error" role="status">Some map tiles could not load. <button type="button" onClick={() => { setTileError(false); tiles.current?.redraw(); }}>Retry map</button></div>}
     {popup && createPortal(<>
-      {popup.pin.has_calorie_data !== undefined ? <BranchPopup pin={popup.pin} /> : <strong>{popup.pin.poi_name}</strong>}
+      {popup.pin.has_calorie_data !== undefined ? <BranchPopup pin={popup.pin} goals={goals} isFavorite={isFavorite} onToggleFavorite={onToggleFavorite} /> : <strong>{popup.pin.poi_name}</strong>}
       {popup.items.map(({ item, number }) => <p key={item.item_id}>{number}. {item.food_item} · {item.calories} kcal</p>)}
     </>, popup.node)}
   </>;

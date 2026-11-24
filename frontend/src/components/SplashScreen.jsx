@@ -40,7 +40,6 @@ export default function SplashScreen() {
     >
       <div className="splash-content flex flex-col items-center text-center">
         <BrandLogo />
-        <p className="mt-7 font-sans text-3xl text-ink">CalCipher</p>
         <p className="mt-3 text-base text-slate-mute">Restaurant and nutrition search</p>
       </div>
     </div>

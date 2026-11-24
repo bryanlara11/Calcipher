@@ -2,6 +2,23 @@
 
 This document describes the project architecture, data safeguards and implementation status.
 
+## Current release status — 2026-11-25
+
+The current interface includes Home, meal Search, brand-grouped Nearby, synced Chat, Meal Plan,
+Favorites and Settings. About menu data is linked only from Home. The latest supplied avocado
+logo is used throughout; both themes share #5B8219 accents, with white Light surfaces and shaded
+black/gray Dark panels. Source images carry attribution and branch-availability caveats.
+
+Active nutrition scope is @anongcaloriesnito only: 97 pending records, 17 brands, zero reviewed.
+Six other-source KFC rows remain archived, excluded from retrieval/menus/map matching. The
+query parser recognizes archived brand names to avoid substituting unrelated restaurants.
+Favorites and Meal Plan are local browser data. A Healthy badge requires explicit human review
+and satisfaction of the user's selected nutrition goals. Pending goal matches use text only.
+
+Checks: 309 backend tests, 52 frontend tests, lint/build passed. Live API checks confirm source
+scope and exact filter behavior. See `docs/HANDOFF.md` for limitations. Historical entries below
+record earlier states and counts; they do not override this current release status.
+
 ## 1. Project Overview & Core Data Reality
 
 **CalCipher** is a localized Hybrid Retrieval-Augmented Generation (RAG) web application that
@@ -138,7 +155,7 @@ an empty neighborhood would otherwise always look like a cache miss.
   action reflected in reviewed CSV or a dataset-hash-bound approval receipt. Pending records are
   excluded from recommendation retrieval and approved nutrition counts. Nearby may explicitly
   browse pending catalog locations/menus with `include_pending=true`; these are labelled pending.
-  Location discovery matches all catalog brands, while query parsing keeps the reviewed registry. Existing verified
+  Location discovery matches all catalog brands, while query parsing recognizes all catalog brands. Existing verified
   corrections require explicit `load --allow-reviewed-updates` to change. Unverified writes never overwrite verified rows; demo seeding never overwrites
   scraped (`source_post_url` set) or verified rows; `--purge-demo-items` never deletes them.
 - **Branch matches are refreshed after brand changes:** `rematch_branches` only fills unmatched
@@ -161,6 +178,32 @@ an empty neighborhood would otherwise always look like a cache miss.
 - Frontend: Vite dev server on :5173 proxies `/api` → `http://localhost:8000`.
 
 ## 7. Current Implementation Status
+
+**2026-11-25 — organized menus, avocado palette and expanded catalog**
+
+- Replaced the supplied logo throughout the app and browser icons without cropping the artwork.
+  The interface uses avocado-green accents; dark mode retains black backgrounds and the map
+  retains its natural colors. Menu popups separate the name/calories, review status, nutrition
+  table, price and source details into readable cards.
+- Imported 24 additional source-backed pending records for Jollibee, Burger King, Popeyes and
+  World Chicken. The persistent catalog now contains 60 records across ten brands, all pending.
+  Prices and missing macros remain unavailable. The previous 36-record review snapshot is intact.
+- Expansion snapshot SHA-256: 11e88f4ac88d88b3e13bb108a01afa2524e2a348d6d07a3f0cf1de5cbf776ca8.
+- 305 backend tests and 34 frontend tests pass; frontend lint and production build pass.
+
+
+**2026-11-25 — Meal Chat and Nearby synchronization**
+
+- Chat uses the same pin, radius, provider and catalog brand names as Nearby. When no reviewed
+  meal qualifies, exact-filtered pending records appear separately as catalog previews; the
+  approved `results` array remains empty. Pending facts never enter the recommendation generator.
+- Responses retain their search context; changing the area labels earlier replies and cancels
+  any in-flight request. Overlapping sends are prevented.
+- Live KFC queries returned the two eligible pending items under 600 kcal with at least 20 g
+  protein; PHP250 searches correctly returned none without price evidence. A 100 m query kept
+  its exact radius. Browser checks verified 1 km to 500 m synchronization and source attribution.
+- 305 backend tests and 34 frontend tests, lint and production build pass.
+
 
 **2026-11-25 — automatic catalog location browsing**
 

@@ -4,8 +4,8 @@ import ThemeControl from "./ThemeControl.jsx";
 export default function SettingsPage({ headingRef, appearance, provider, config, configError, discoveryIssue, onReconnect, browserKeyConfigured }) {
   const offline = Boolean(configError || discoveryIssue);
   return <section className="settings-page">
-    <h1 ref={headingRef} tabIndex={-1}>Settings & data</h1>
-    <p className="page-lead">Adjust the appearance and see where your results come from.</p>
+    <h1 ref={headingRef} tabIndex={-1}>Settings</h1>
+    <p className="page-lead">Choose your appearance and manage the map connection.</p>
     <div className="settings-grid">
       <section className="settings-card appearance-card" aria-labelledby="appearance-heading">
         <div><h2 id="appearance-heading"><Icon name="sun" />Appearance</h2><p>Light, dark, or your device setting.</p></div>
@@ -20,11 +20,10 @@ export default function SettingsPage({ headingRef, appearance, provider, config,
         {configError && <button type="button" className="text-button reconnect-button" onClick={onReconnect}>Reconnect to API</button>}
         {configError && <details className="settings-disclosure"><summary>Connection details</summary><p>{configError}</p></details>}
       </section>
-      <section className="settings-card" aria-labelledby="data-heading">
-        <h2 id="data-heading"><Icon name="leaf" />Nutrition & prices</h2>
-        <p>Nutrition uses source-backed records, including @anongcaloriesnito and official restaurant publications. Missing values stay marked as unavailable.</p>
-        <details className="settings-disclosure"><summary>How data is checked</summary><p>“Checked against source” means a record was reviewed. Pending records are excluded from recommendations. Reviewing a community report does not make it official restaurant nutrition. Source links are included with meal results.</p><p>Menus and prices can vary by branch. Budget searches exclude items without a checked source price.</p></details>
-        <details className="settings-disclosure"><summary>Location & privacy</summary><p>Your browser asks for location permission only when you choose “Use my location.” You can also place the pin yourself. The selected area is sent to the restaurant service to find nearby places.</p></details>
+      <section className="settings-card" aria-labelledby="privacy-heading">
+        <h2 id="privacy-heading"><Icon name="info" />Location & privacy</h2>
+        <p>Your location is requested only when you choose “Use my location.” You can also move the map pin yourself.</p>
+        <p>Favorites stay in this browser. The selected search area is sent to the restaurant service to find nearby places.</p>
       </section>
       <details className="settings-card settings-advanced"><summary>Google Maps setup<span>Optional</span></summary>
         <p>The no-key map works without Google. To switch, configure both keys and restart the API and Vite.</p>

@@ -1,64 +1,68 @@
 import { useEffect, useState } from "react";
 import { brandItems } from "../api/client.js";
+import GoalBadge from "./GoalBadge.jsx";
+import FavoriteButton from "./FavoriteButton.jsx";
+import SourcePhoto from "./SourcePhoto.jsx";
+import AddToPlan from "./AddToPlan.jsx";
 
-function BrandMenu({ slug, includePending = false }) {
+const SOURCE_LABELS = { official: "Official nutrition", community_reported: "Community-reported nutrition", estimated: "Estimated nutrition" };
+const grams = value => value == null ? "Unavailable" : `${Number(value).toLocaleString(undefined, { maximumFractionDigits: 2 })} g`;
+const hasWebSource = url => /^https?:\/\//i.test(url || "");
+
+export function BrandMenu({ slug, includePending = false, goals }) {
   const [state, setState] = useState({ loading: true, items: [], error: null });
   useEffect(() => {
     const ctrl = new AbortController();
     brandItems(slug, { signal: ctrl.signal, includePending })
-      .then((r) => setState({ loading: false, items: r.items, error: null }))
-      .catch((e) => e.name !== "AbortError" && setState({ loading: false, items: [], error: e.message }));
+      .then(r => {
+        if (!Array.isArray(r.items)) throw new Error("Menu details could not be loaded.");
+        setState({ loading: false, items: r.items, error: null });
+      })
+      .catch(e => e.name !== "AbortError" && setState({ loading: false, items: [], error: e.message }));
     return () => ctrl.abort();
   }, [slug, includePending]);
 
   if (state.loading) return <p className="text-sm text-slate-mute">Loading menu…</p>;
   if (state.error) return <p className="text-sm text-warn">{state.error}</p>;
-  return (
-    <div>
-    <p className="mt-2 text-xs text-slate-mute">Brand nutrition. Item availability at this branch is unconfirmed.</p>
-    <ul className="mt-2 max-h-48 overflow-y-auto pr-1 text-sm">
-      {state.items.map((it) => (
-        <li key={it.item_id} className="flex items-baseline justify-between gap-3 border-t border-slate-line py-1">
-          <span>{it.food_item}<span className="block text-xs text-slate-mute">
-            {it.serving_size || "Serving size unavailable"} · {it.is_verified ? "Checked against source" : "Pending review"}
-            {it.price_php == null ? " · Price unavailable" : ` · Source price ₱${it.price_php.toFixed(2)}`}
-          </span><span className="block text-xs text-slate-mute">
-            {[["Protein", it.protein_g], ["Carbs", it.carbs_g], ["Fat", it.fat_g]]
-              .map(([name, value]) => `${name} ${value == null ? "unavailable" : `${value} g`}`).join(" · ")}
-          </span><span className="block text-xs text-slate-mute">
-            {it.source_classification === "official" ? "Official nutrition" : it.source_classification === "community_reported" ? "Community-reported nutrition" : it.source_classification === "estimated" ? "Estimated nutrition" : "Source classification unavailable"}
-            {it.source_post_url && <> · <a href={it.source_post_url} target="_blank" rel="noreferrer">Nutrition source</a></>}
-            {it.collected_at && ` · Collected ${it.collected_at}`}
-          </span></span>
-          <span className="num type-cond whitespace-nowrap font-bold">{it.calories} kcal</span>
-        </li>
-      ))}
+  if (!state.items.length) return <p className="text-sm text-slate-mute">No menu records available.</p>;
+  return <div className="branch-menu">
+    <ul className="menu-records" aria-label="Menu nutrition records">
+      {state.items.map(item => <li key={item.item_id} className="menu-record">
+        <SourcePhoto item={item} />
+        <div className="menu-record-heading">
+          <h3>{item.food_item}</h3>
+          <p className="menu-energy"><strong className="num">{item.calories}</strong><span>kcal</span></p>
+        </div>
+        <div className="menu-record-status"><span className="review-pill">{item.is_verified ? "Checked against source" : "Pending review"}</span></div>
+        <GoalBadge item={item} goals={goals} />
+        <p className="menu-serving">{item.serving_size || "Serving size unavailable"}</p>
+        <dl className="menu-macros">{[["Protein", item.protein_g], ["Carbs", item.carbs_g], ["Fat", item.fat_g]].map(([label, value]) =>
+          <div key={label}><dt>{label}</dt><dd className="num">{grams(value)}</dd></div>)}
+        </dl>
+        <p className="menu-price">{item.price_php == null ? "Price unavailable" : `Source price ₱${item.price_php.toFixed(2)}`}</p>
+        <AddToPlan item={item} />
+        <footer className="menu-evidence">
+          <p>{SOURCE_LABELS[item.source_classification] || "Source classification unavailable"}</p>
+          <div>{hasWebSource(item.source_post_url) && <a href={item.source_post_url} target="_blank" rel="noreferrer">Nutrition source ↗</a>}
+            {item.collected_at && <time dateTime={item.collected_at}>Collected {item.collected_at}</time>}
+          </div>
+        </footer>
+      </li>)}
     </ul>
-    </div>
-  );
+    <p className="branch-availability">Brand nutrition. Item availability at this branch is unconfirmed.</p>
+  </div>;
 }
 
-export function BranchPopup({ pin }) {
-  return (
-    <div className="w-56">
-      <p className="text-base font-bold leading-tight">{pin.poi_name}</p>
-      <p className="text-xs text-slate-mute">
-        {pin.distance_km.toFixed(2)} km away{pin.address_hint ? `, ${pin.address_hint}` : ""}
+export function BranchPopup({ pin, goals, isFavorite, onToggleFavorite }) {
+  return <div className="branch-popup">
+    <div className="branch-heading"><h2 className="branch-name">{pin.poi_name}</h2><FavoriteButton pin={pin} saved={isFavorite?.(pin)} onToggle={onToggleFavorite} /></div>
+    <p className="branch-location">{pin.distance_km.toFixed(2)} km away{pin.address_hint ? ` · ${pin.address_hint}` : ""}</p>
+    {pin.has_catalog_data || pin.has_calorie_data ? <>
+      <p className="branch-menu-count">{pin.catalog_item_count || pin.item_count} {pin.brand_name} menu records
+        {pin.has_calorie_data && <> · reviewed items from <strong className="num">{pin.min_calories} kcal</strong></>}
       </p>
-      {pin.has_catalog_data || pin.has_calorie_data ? (
-        <>
-          <p className="mt-2 text-sm">
-            {pin.catalog_item_count || pin.item_count} {pin.brand_name} menu records
-            {pin.has_calorie_data && <> · reviewed items from <strong className="num">{pin.min_calories} kcal</strong></>}
-          </p>
-          {pin.pending_item_count > 0 && <p className="mt-2 text-xs text-slate-mute">{pin.pending_item_count} records pending review. Pending values are not used in meal recommendations.</p>}
-          <BrandMenu slug={pin.matched_brand_slug} includePending={Boolean(pin.has_catalog_data)} />
-        </>
-      ) : (
-        <p className="mt-2 text-sm text-slate-mute">
-          No reviewed calorie data is available for this restaurant yet.
-        </p>
-      )}
-    </div>
-  );
+      {pin.pending_item_count > 0 && <p className="branch-review-note">{pin.pending_item_count} records pending review. Pending values are not used in meal recommendations.</p>}
+      <BrandMenu slug={pin.matched_brand_slug} includePending={Boolean(pin.has_catalog_data)} goals={goals} />
+    </> : <p className="branch-review-note">No reviewed calorie data is available for this restaurant yet.</p>}
+  </div>;
 }

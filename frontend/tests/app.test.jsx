@@ -10,12 +10,18 @@ import { NutritionPanel } from "../src/components/ChatPanel.jsx";
 import { changeSystemTheme } from "./setup.js";
 import { branchKey, mergeListings } from "../src/components/mapListings.js";
 import { BranchPopup } from "../src/components/MapPopup.jsx";
+import GoalBadge, { matchesNutritionGoals } from "../src/components/GoalBadge.jsx";
+import { FAVORITES_KEY } from "../src/favorites.js";
+import { PLAN_KEY, nutritionTotals } from "../src/mealPlan.js";
+import { groupByBrand } from "../src/components/BrandDirectory.jsx";
 
-vi.mock("../src/components/CalorieMap.jsx", () => ({ default: ({ onViewport }) => <div role="region" aria-label="Map renderer test stub"><button type="button" onClick={() => onViewport("14.57,14.59,120.97,120.99")}>Report test viewport</button><button type="button" onClick={() => onViewport("14.58,14.60,120.98,121.00")}>Pan test viewport</button></div> }));
+vi.mock("../src/components/CalorieMap.jsx", () => ({ default: ({ onViewport, onMove }) => <div role="region" aria-label="Map renderer test stub"><button type="button" onClick={() => onViewport("14.57,14.59,120.97,120.99")}>Report test viewport</button><button type="button" onClick={() => onViewport("14.58,14.60,120.98,121.00")}>Pan test viewport</button><button type="button" onClick={() => onMove({ lat: 14.59, lng: 120.99 })}>Move test pin</button></div> }));
 const response = body => ({ ok: true, json: async () => body });
 beforeEach(() => {
+  window.history.replaceState(null, "", "/#/search");
   vi.stubGlobal("fetch", vi.fn(async url => {
     if (url.includes("map-config")) return response({ provider: "osm", google_places_configured: false, osm_discovery_enabled: true });
+    if (url.includes("catalog-summary")) return response({ records: 4, brands: 2, reviewed: 1, pending: 3 });
     throw new Error(`Unexpected request: ${url}`);
   }));
 });
@@ -73,7 +79,7 @@ describe("meal search and cards", () => {
     fireEvent.change(screen.getByLabelText(/Max calories/), { target: { value: "450" } });
     fireEvent.change(screen.getByLabelText(/Meal budget/), { target: { value: "120" } });
     await userEvent.click(screen.getByRole("button", { name: "Find a meal" }));
-    expect(onSearch).toHaveBeenCalledWith("rice under 450 kcal under PHP120");
+    expect(onSearch).toHaveBeenCalledWith("rice under 450 kcal under PHP120", { max_calories: 450, max_price_php: 120 });
   });
   it("keeps unknown values unavailable and unchecked data visibly unverified", () => {
     render(<NutritionPanel item={sample} index={1} onLocate={vi.fn()} />);
@@ -123,6 +129,46 @@ describe("meal search and cards", () => {
     await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("Backend unreachable"));
     expect(screen.queryByText("Synthetic test bowl")).toBeNull();
   });
+  it("shows pending chat matches as catalog previews with sources and a map action", async () => {
+    fetch.mockImplementation(async url => response(url.includes("map-config") ? { provider: "osm" } : {
+      results: [], catalog_matches: [{ ...sample, source_post_url: "https://example.test/source" }],
+      answer: "Synthetic catalog matches are pending review", relaxation: { applied: false }, inspector: { generator_used: "template" },
+    }));
+    render(<App />);
+    await waitFor(() => expect(screen.getByRole("button", { name: "Find a meal" }).disabled).toBe(false));
+    await userEvent.click(screen.getByRole("button", { name: "Find a meal" }));
+    await screen.findByRole("region", { name: "Catalog matches pending review" });
+    expect(screen.getByText("Synthetic test bowl")).toBeTruthy();
+    expect(screen.getByText("Pending review; source values are not approved.")).toBeTruthy();
+    expect(screen.queryByLabelText("Map pin 1")).toBeNull();
+    expect(screen.getByRole("link", { name: /^Nutrition source/ }).getAttribute("href")).toBe("https://example.test/source");
+    await userEvent.click(screen.getByRole("button", { name: "Synthetic test branch" }));
+    expect(screen.getByRole("heading", { name: "Nearby restaurants" })).toBeTruthy();
+  });
+  it("uses Nearby's pin and radius in chat and marks replies from an earlier area", async () => {
+    fetch.mockImplementation(async url => response(url.includes("map-config") ? { provider: "osm" }
+      : url.includes("map-items") ? { branches: [], discovery: { source: "cache", error: null } }
+      : { results: [], catalog_matches: [sample], answer: "Synthetic pending reply", relaxation: { applied: false }, inspector: { generator_used: "template" } }));
+    render(<App />);
+    await userEvent.click(screen.getByRole("link", { name: "Nearby" }));
+    await userEvent.click(screen.getByRole("button", { name: "Report test viewport" }));
+    await userEvent.click(screen.getByRole("button", { name: "Area & filters" }));
+    fireEvent.change(screen.getByLabelText("Search radius"), { target: { value: "1500" } });
+    await userEvent.click(screen.getByRole("button", { name: "Move test pin" }));
+    await waitFor(() => expect(fetch.mock.calls.some(([url]) => url.includes("map-items") && new URL(url, "http://test").searchParams.get("lat") === "14.590000")).toBe(true));
+    const mapRequest = fetch.mock.calls.filter(([url]) => url.includes("map-items")).at(-1);
+    await userEvent.click(screen.getByRole("link", { name: "Chat" }));
+    await userEvent.type(screen.getByLabelText("Describe what you want to eat"), "KFC under 500 kcal");
+    await userEvent.click(screen.getByRole("button", { name: "Search" }));
+    await screen.findByText("Synthetic pending reply");
+    const request = fetch.mock.calls.find(([url]) => url.endsWith("/chat"));
+    expect(JSON.parse(request[1].body)).toMatchObject({ lat: 14.59, lng: 120.99, radius_km: 1.5 });
+    expect(request[1].headers["X-CalCipher-Map-Provider"]).toBe(mapRequest[1].headers["X-CalCipher-Map-Provider"]);
+    await userEvent.click(screen.getByRole("link", { name: "Nearby" }));
+    fireEvent.change(screen.getByLabelText("Search radius"), { target: { value: "2000" } });
+    await userEvent.click(screen.getByRole("link", { name: "Chat" }));
+    expect(screen.getByText("Earlier search area. Search again to use your current pin and radius.")).toBeTruthy();
+  });
   it("supports direct page links and hash navigation while retaining search inputs", async () => {
     render(<App />);
     await userEvent.type(screen.getByPlaceholderText(/Chicken, noodles/), "rice");
@@ -141,7 +187,7 @@ describe("meal search and cards", () => {
   it("renders a direct settings URL on refresh", () => {
     window.history.replaceState(null, "", "/#/settings");
     render(<App />);
-    expect(screen.getByRole("heading", { name: "Settings & data" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Settings" })).toBeTruthy();
   });
   it("reconnects Settings after the API becomes available", async () => {
     window.history.replaceState(null, "", "/#/settings");
@@ -229,7 +275,7 @@ describe("meal search and cards", () => {
     expect(screen.getByRole("alert").textContent).toContain("Search area changed");
     expect(screen.queryByText("Synthetic test bowl")).toBeNull();
   });
-  it.each(["light", "dark"].flatMap(theme => ["search", "nearby", "chat", "settings"].map(page => [theme, page])))("has no structural accessibility violations in %s %s", async (theme, page) => {
+  it.each(["light", "dark"].flatMap(theme => ["home", "search", "nearby", "chat", "plan", "favorites", "settings", "data"].map(page => [theme, page])))("has no structural accessibility violations in %s %s", async (theme, page) => {
     window.history.replaceState(null, "", `/#/${page}`);
     // jsdom has no canvas renderer. SVG icons are used; color pairs are tested separately.
     vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(null);
@@ -245,10 +291,11 @@ describe("map identities", () => {
       source_post_url: "https://example.test/pending", serving_size: null, source_classification: "community_reported" }] }));
     render(<BranchPopup pin={{ poi_name: "Synthetic pending", distance_km: .2, has_catalog_data: true,
       has_calorie_data: false, matched_brand_slug: "synthetic", brand_name: "Synthetic", catalog_item_count: 1, pending_item_count: 1, item_count: 0 }} />);
-    await screen.findByRole("link", { name: "Nutrition source" });
+    await screen.findByRole("link", { name: /^Nutrition source/ });
     expect(fetch.mock.calls[0][0]).toContain("include_pending=true");
     expect(screen.getByText(/Pending values are not used in meal recommendations/)).toBeTruthy();
-    expect(screen.getByText(/Serving size unavailable · Pending review/)).toBeTruthy();
+    expect(screen.getByText("Serving size unavailable")).toBeTruthy();
+    expect(screen.getByText("Pending review")).toBeTruthy();
     expect(screen.queryByText(/Checked against source/)).toBeNull();
   });
   it("does not fetch a location-only menu or imply it is absent from the catalog", () => {
@@ -262,7 +309,7 @@ describe("map identities", () => {
       source_post_url: "https://example.test/original" }] }));
     render(<BranchPopup pin={{ poi_name: "Synthetic branch", distance_km: .2, has_calorie_data: true,
       matched_brand_slug: "synthetic", brand_name: "Synthetic", item_count: 1, min_calories: 400 }} />);
-    const source = await screen.findByRole("link", { name: "Nutrition source" });
+    const source = await screen.findByRole("link", { name: /^Nutrition source/ });
     expect(source.getAttribute("href")).toBe("https://example.test/original");
     expect(screen.getByText(/Community-reported nutrition/)).toBeTruthy();
     expect(screen.getByText(/Serving size unavailable/)).toBeTruthy();
@@ -277,6 +324,134 @@ describe("map identities", () => {
     expect(listings.get(branchKey(node)).items[0].number).toBe(1);
     expect(listings.get(branchKey(way)).items).toEqual([]);
     expect(branchKey({ place_id: "google-id" })).toBe("google:google-id");
+  });
+});
+
+describe("home, goals and saved restaurants", () => {
+  const pin = { osm_type: "node", osm_id: 91, poi_name: "Synthetic saved branch", distance_km: .2,
+    has_catalog_data: true, has_calorie_data: false, catalog_item_count: 6, pending_item_count: 6,
+    brand_name: "Synthetic", matched_brand_slug: "synthetic", latitude: 14.58, longitude: 120.985, address_hint: "Synthetic Street" };
+  const mockPlaces = () => fetch.mockImplementation(async url => response(url.includes("map-config") ? { provider: "osm" }
+    : { branches: [pin, { ...pin, osm_type: "way", poi_name: "Synthetic second branch" }], discovery: { source: "cache", error: null } }));
+  it("opens Home by default and explains how to start a meal search", async () => {
+    window.history.replaceState(null, "", "/"); render(<App />);
+    expect(screen.getByRole("heading", { name: "Find food that fits your day." })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "How it works" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "About menu data" })).toBeTruthy();
+    await userEvent.click(screen.getByRole("link", { name: "Find a meal" }));
+    expect(screen.getByRole("heading", { name: "What sounds good?" })).toBeTruthy();
+  });
+  it("keeps meal results on Search and shares their goal context with Chat", async () => {
+    fetch.mockImplementation(async url => response(url.includes("map-config") ? { provider: "osm" } : {
+      results: [], catalog_matches: [sample], answer: "Synthetic meal search response", relaxation: { applied: false },
+      inspector: { generator_used: "template", constraints: { max_calories: 500 } },
+    }));
+    render(<App />);
+    await waitFor(() => expect(screen.getByRole("button", { name: "Find a meal" }).disabled).toBe(false));
+    await userEvent.click(screen.getByRole("button", { name: "Nutrition & budget" }));
+    await userEvent.type(screen.getByLabelText(/Max calories/), "500");
+    await userEvent.click(screen.getByRole("button", { name: "Find a meal" }));
+    await screen.findByRole("region", { name: "Meal search results" });
+    await screen.findByText("Synthetic test bowl");
+    expect(window.location.hash).toBe("#/search");
+    const submitted = fetch.mock.calls.find(([url]) => url.endsWith("/chat"));
+    expect(JSON.parse(submitted[1].body).filters).toEqual({ max_calories: 500 });
+    expect(screen.getByText("Matches your goals · Pending review")).toBeTruthy();
+    await userEvent.click(screen.getByRole("link", { name: "Chat" }));
+    expect(screen.getByText("Synthetic meal search response")).toBeTruthy();
+  });
+  it("saves separate OSM identities, restores them after remount and removes a favorite", async () => {
+    mockPlaces(); const view = render(<App />);
+    await userEvent.click(screen.getByRole("link", { name: "Nearby" }));
+    await userEvent.click(screen.getByRole("button", { name: "Report test viewport" }));
+    await screen.findByText("2 catalog locations nearby");
+    await userEvent.click(screen.getByRole("button", { name: "List", exact: true }));
+    await userEvent.click(screen.getByRole("button", { name: "Add Synthetic saved branch to favorites" }));
+    await userEvent.click(screen.getByRole("button", { name: "Add Synthetic second branch to favorites" }));
+    expect(JSON.parse(localStorage.getItem(FAVORITES_KEY))).toHaveLength(2);
+    await userEvent.click(screen.getByRole("link", { name: "Favorites" }));
+    expect(screen.getByRole("heading", { name: "Synthetic saved branch" })).toBeTruthy();
+    view.unmount(); render(<App />);
+    expect(screen.getByRole("heading", { name: "Synthetic second branch" })).toBeTruthy();
+    await userEvent.click(screen.getByRole("button", { name: "Remove Synthetic saved branch from favorites" }));
+    expect(screen.queryByRole("heading", { name: "Synthetic saved branch" })).toBeNull();
+    expect(JSON.parse(localStorage.getItem(FAVORITES_KEY))).toHaveLength(1);
+    await userEvent.click(screen.getByRole("button", { name: "Explore this area" }));
+    expect(screen.getByRole("heading", { name: "Nearby restaurants" })).toBeTruthy();
+  });
+  it("keeps favorites usable in memory when browser storage is blocked", async () => {
+    mockPlaces(); vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => { throw Error("blocked"); });
+    render(<App />);
+    await userEvent.click(screen.getByRole("link", { name: "Nearby" }));
+    await userEvent.click(screen.getByRole("button", { name: "Report test viewport" }));
+    await screen.findByText("2 catalog locations nearby");
+    await userEvent.click(screen.getByRole("button", { name: "List", exact: true }));
+    await userEvent.click(screen.getByRole("button", { name: "Add Synthetic saved branch to favorites" }));
+    await userEvent.click(screen.getByRole("link", { name: "Favorites" }));
+    expect(screen.getByRole("heading", { name: "Synthetic saved branch" })).toBeTruthy();
+    expect(screen.getByText(/This browser cannot save favorites between visits/)).toBeTruthy();
+  });
+  it("requires selected nutrition goals and known values for a goal match", () => {
+    expect(matchesNutritionGoals(sample, {})).toBe(false);
+    expect(matchesNutritionGoals(sample, { max_calories: "", min_protein_g: null })).toBe(false);
+    expect(matchesNutritionGoals(sample, { max_calories: 500, min_protein_g: 20 })).toBe(true);
+    expect(matchesNutritionGoals({ ...sample, protein_g: null }, { min_protein_g: 20 })).toBe(false);
+    expect(matchesNutritionGoals(sample, { max_calories: 300 })).toBe(false);
+  });
+  it("uses the Approved seal only for reviewed meals matching the selected goals", () => {
+    const view = render(<GoalBadge item={sample} goals={{ max_calories: 500 }} />);
+    expect(screen.queryByAltText("CalCipher Approved seal")).toBeNull();
+    expect(screen.getByText("Matches your goals · Pending review")).toBeTruthy();
+    view.rerender(<GoalBadge item={{ ...sample, is_verified: true }} goals={{ max_calories: 500 }} />);
+    expect(screen.getByAltText("CalCipher Approved seal")).toBeTruthy();
+    expect(screen.getByText("Healthy match")).toBeTruthy();
+    view.rerender(<GoalBadge item={{ ...sample, is_verified: true }} goals={{ max_calories: 300 }} />);
+    expect(screen.queryByAltText("CalCipher Approved seal")).toBeNull();
+  });
+  it("groups nearby branches by brand and keeps the closest branch first", () => {
+    const groups = groupByBrand([
+      { ...pin, distance_km: 2 }, { ...pin, osm_id: 92, distance_km: .1 },
+      { ...pin, brand_name: "Another brand", matched_brand_slug: "another", osm_id: 93 },
+    ]);
+    expect(groups.map(group => group.name)).toEqual(["Another brand", "Synthetic"]);
+    expect(groups[1].pins.map(item => item.distance_km)).toEqual([.1, 2]);
+  });
+  it("opens menu data only through Home and keeps it out of Settings and the main navigation", async () => {
+    window.history.replaceState(null, "", "/#/home"); render(<App />);
+    await userEvent.click(screen.getByRole("link", { name: "Read about the data" }));
+    expect(screen.getByRole("heading", { name: "About menu data", level: 1 })).toBeTruthy();
+    expect(screen.queryByRole("link", { name: "About menu data" })).toBeNull();
+    await screen.findByText("Menu records");
+    await userEvent.click(screen.getByRole("link", { name: "Settings", exact: true }));
+    expect(screen.getByRole("heading", { name: "Settings", level: 1 })).toBeTruthy();
+    expect(screen.queryByText("Menu records")).toBeNull();
+  });
+  it("saves a pending meal to a plan, restores it and removes it without inventing missing macros", async () => {
+    fetch.mockImplementation(async url => response(url.includes("map-config") ? { provider: "osm" } : {
+      results: [], catalog_matches: [sample], answer: "Synthetic pending meal", relaxation: { applied: false },
+      inspector: { generator_used: "template", constraints: { max_calories: 500 } },
+    }));
+    const view = render(<App />);
+    await waitFor(() => expect(screen.getByRole("button", { name: "Find a meal" }).disabled).toBe(false));
+    await userEvent.click(screen.getByRole("button", { name: "Find a meal" }));
+    await screen.findByText("Synthetic test bowl");
+    await userEvent.click(screen.getByText("Add to meal plan"));
+    await userEvent.click(screen.getByRole("button", { name: "Save meal" }));
+    await userEvent.click(screen.getByRole("link", { name: "Meal plan", exact: true }));
+    expect(screen.getByRole("heading", { name: "Synthetic test bowl" })).toBeTruthy();
+    expect(screen.getByText(/1 planned meal is pending source review/)).toBeTruthy();
+    expect(screen.getByText("1 meal has no carbs value")).toBeTruthy();
+    expect(JSON.parse(localStorage.getItem(PLAN_KEY))).toHaveLength(1);
+    view.unmount(); render(<App />);
+    expect(screen.getByRole("heading", { name: "Synthetic test bowl" })).toBeTruthy();
+    await userEvent.click(screen.getByRole("button", { name: "Remove Synthetic test bowl from meal plan" }));
+    expect(screen.queryByRole("heading", { name: "Synthetic test bowl" })).toBeNull();
+    expect(JSON.parse(localStorage.getItem(PLAN_KEY))).toEqual([]);
+  });
+  it("reports known totals and missing values separately", () => {
+    const entries = [{ item: { protein_g: 20 } }, { item: { protein_g: null } }];
+    expect(nutritionTotals(entries, "protein_g")).toEqual({ known: 20, missing: 1 });
+    expect(nutritionTotals(entries, "fat_g")).toEqual({ known: 0, missing: 2 });
   });
 });
 

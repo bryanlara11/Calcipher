@@ -28,10 +28,10 @@ function loadMaps() {
 
 function circleIcon(maps, radius, fillColor) {
   return { path: maps.SymbolPath.CIRCLE, scale: radius, fillColor, fillOpacity: 1,
-    strokeColor: "#FDEDC9", strokeWeight: 2 };
+    strokeColor: "#FFFFFF", strokeWeight: 2 };
 }
 
-export default function GoogleMap({ location, onMove, onViewport, radiusKm, pins, results, focus, reserveBottom = false }) {
+export default function GoogleMap({ location, onMove, onViewport, radiusKm, pins, results, focus, reserveBottom = false, goals, isFavorite, onToggleFavorite }) {
   const container = useRef(null);
   const initialCenter = useRef(location);
   const [map, setMap] = useState(null);
@@ -74,7 +74,7 @@ export default function GoogleMap({ location, onMove, onViewport, radiusKm, pins
     const maps = window.google.maps;
     const marker = new maps.Marker({
       map, position: location, draggable: true, title: "Your search location", zIndex: 3,
-      icon: circleIcon(maps, 9, "#F7C15A"),
+      icon: circleIcon(maps, 9, "#475569"),
     });
     const circle = new maps.Circle({ map, center: location, radius: radiusKm * 1000,
       clickable: false, strokeWeight: 1, fillOpacity: 0.05 });
@@ -97,11 +97,11 @@ export default function GoogleMap({ location, onMove, onViewport, radiusKm, pins
     const listings = mergeListings(pins, results);
     const markers = Array.from(listings.values(), ({ pin, items }) => {
       const result = items[0];
-      const color = result ? "#F7C15A" : pin.has_calorie_data ? "#064D2E" : "#687D6C";
+      const color = result ? "#5B8219" : pin.has_calorie_data ? "#5B8219" : "#7B8B55";
       const marker = new maps.Marker({
         map, position: { lat: pin.latitude, lng: pin.longitude }, title: pin.poi_name,
         icon: circleIcon(maps, result ? 17 : 13, color),
-        label: result ? { text: String(result.number), color: "#064D2E", fontWeight: "bold" } : null,
+        label: result ? { text: String(result.number), color: "#FFFFFF", fontWeight: "bold" } : null,
         zIndex: result ? 2 : pin.has_calorie_data ? 1 : 0,
       });
       marker.addListener("click", () => {
@@ -119,14 +119,14 @@ export default function GoogleMap({ location, onMove, onViewport, radiusKm, pins
     {/* leave room for the collapsed inspector bar only while it is on screen */}
     <div ref={container} className={`w-full ${reserveBottom ? "h-[calc(100%-2.75rem)]" : "h-full"}`} />
     {(!key || error) && <div className="map-empty" role="status">
-      <div className="empty-illustration"><img src="/brand/icon.svg" alt="" width="56" height="56" /></div>
+      <div className="empty-illustration"><img src="/brand/icon-avocado.png" alt="" width="56" height="56" /></div>
       <span className="empty-badge">{error ? "Map unavailable" : "Map setup needed"}</span>
       <h3>Restaurant map unavailable</h3>
       <p>{error || "Google Maps needs a browser key. Open Settings to check the connection."}</p>
       <a href="#/settings">Open Settings</a>
     </div>}
     {popup && createPortal(<>
-      {popup.pin.has_calorie_data !== undefined ? <BranchPopup pin={popup.pin} /> : <strong>{popup.pin.poi_name}</strong>}
+      {popup.pin.has_calorie_data !== undefined ? <BranchPopup pin={popup.pin} goals={goals} isFavorite={isFavorite} onToggleFavorite={onToggleFavorite} /> : <strong>{popup.pin.poi_name}</strong>}
       {popup.items.map(({item, number}) => <p key={item.item_id}>{number}. {item.food_item} · {item.calories} kcal</p>)}
       {(popup.pin.attributions || []).map(a => <p key={a.provider}>{a.provider}</p>)}
     </>, popup.node)}

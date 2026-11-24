@@ -16,20 +16,32 @@ RoBERTa model are retained. The LLM can select a retrieved record; factual text 
 
 ## Summary of changes
 
-- Refreshed the interface with the culinary logo, readable fonts, separate pages and light/dark themes.
-- Added restaurant discovery without API keys using OpenStreetMap, with optional Google support.
-- Improved carousel import, OCR review, source tracking and duplicate protection.
-- Imported 36 source-backed Philippine menu records across six brands, pending selected-ID approval.
-- Enforced exact nutrition, budget and distance limits; missing values remain unavailable.
-- Expanded regression coverage and documented collection, review and deployment steps.
+- Added Home, distinct meal Search and Nearby pages, Meal Chat, restaurant Favorites and a daily Meal Plan.
+- Organized nearby branches by brand, with expandable menus, source photos and readable nutrition cards.
+- Applied the supplied avocado logo and approval seal, matching green accents in both themes, white light-mode surfaces and shaded black/gray dark-mode panels.
+- Kept natural map colors and key-free OpenStreetMap discovery, with optional Google support.
+- Limited the active nutrition catalog to **97 pending records across 17 brands credited to @anongcaloriesnito**. Six other-source records are archived, not deleted. Café and sit-down options include Mary Grace, Tim Ho Wan, Marugame Udon and Good Habits Cafe.
+- Kept nutrition, budget and distance limits exact. Missing values remain unknown. Only specifically human-approved records can enter recommendations.
 
-## Branded interface and current verification
+## Current interface and verification
 
-Light, Dark and System modes persist locally. The supplied logo, simplified SVG icon, responsive
-Search, Nearby, Chat and Settings pages use cream/forest in Light mode and black with muted sage-green text in Dark mode. Maps keep their natural colors. The sidebar keeps the supplied logo without repeated brand text or navigation numbers. Settings uses separate appearance, locations and data cards, with technical setup collapsed. Nutrition and map filters open on demand; mobile uses bottom navigation. Search fields and chat history stay in memory across page changes. Inline PHP prices and slide
-references are review proposals; live Instagram retrieval is still unverified, not fixed by import.
-Current checks: 304 backend tests, 32 frontend tests, lint/build pass; npm audits report zero findings.
-Use Node 22 LTS and npm 11.21.3 for the tested frontend setup (`npx --yes npm@11.21.3 ci`).
+Search finds meals by dish/brand and optional nutrition or budget limits; results stay on Search.
+Nearby finds actual branches and groups them by brand. Meal Chat shares the map pin, radius and
+provider; old replies are labelled when the area changes. Pending catalog previews remain separate
+from reviewed recommendations. Favorites and Meal Plan are stored on the current browser/device.
+A Healthy badge requires a reviewed meal matching the user's selected nutrition goals. Pending
+matches use a text label instead of the approval seal.
+
+About menu data has its own page, linked only from Home. Settings contains appearance, map
+connection and privacy controls. Light, Dark and System theme choices persist locally.
+
+Verification: **309 backend tests, 52 frontend tests, lint and production build passed**. Live API
+checks confirmed 97 active records, 17 brands, zero reviewed records, no archived KFC menu items,
+and exact calorie/budget behavior. Automated Instagram retrieval is still unresolved. There are
+zero checked current PHP prices; only three active records contain reported protein values.
+
+See [the handoff](docs/HANDOFF.md) for setup, dataset loading, remaining work and review boundaries.
+The distributable pending dataset is [here](data/catalog/anongcaloriesnito.pending.json).
 
 ## Quick start on macOS
 
@@ -211,6 +223,6 @@ are flagged in the database (`is_verified = false`, `osm_type = 'seed'`).
 ## Authorized nutrition collection
 
 See [the collection and human review guide](docs/DATA-COLLECTION.md). The current pilot contains
-36 real pending source-backed records across six PH brands; none is recommendation-eligible
+60 real pending source-backed records across ten PH brands; none is recommendation-eligible
 until the operator supplies the specific approved IDs. Missing values stay null; exact hard
 limits remain enforced.
