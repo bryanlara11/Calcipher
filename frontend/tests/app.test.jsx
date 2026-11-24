@@ -188,6 +188,26 @@ describe("meal search and cards", () => {
     await userEvent.click(screen.getByRole("button", { name: "List", exact: true }));
     expect(screen.getByText("Restaurant listings are temporarily unavailable.")).toBeTruthy();
   });
+  it("requests only catalog matches and excludes location-only places from Nearby", async () => {
+    fetch.mockImplementation(async url => response(url.includes("map-config") ? { provider: "osm" } : {
+      branches: [
+        { osm_type: "node", osm_id: 1, poi_name: "Synthetic catalog branch", distance_km: .2, has_calorie_data: true, item_count: 2 },
+        { osm_type: "node", osm_id: 2, poi_name: "Synthetic location-only branch", distance_km: .3, has_calorie_data: false, item_count: 0 },
+      ], discovery: { source: "cache", provider: "osm", error: null },
+    }));
+    render(<App />);
+    await userEvent.click(screen.getByRole("link", { name: "Nearby" }));
+    await userEvent.click(screen.getByRole("button", { name: "Report test viewport" }));
+    await screen.findByText("1 restaurant with nutrition nearby");
+    const url = new URL(fetch.mock.calls.find(([url]) => url.includes("map-items"))[0], "http://test");
+    expect(url.searchParams.get("include_unmatched")).toBe("false");
+    await userEvent.click(screen.getByRole("button", { name: "List", exact: true }));
+    expect(screen.getByText("Synthetic catalog branch")).toBeTruthy();
+    expect(screen.queryByText("Synthetic location-only branch")).toBeNull();
+    expect(screen.queryByText("No nutrition yet")).toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: "Area & filters" }));
+    expect(screen.queryByRole("checkbox", { name: "Only places with nutrition" })).toBeNull();
+  });
   it("cancels a pending meal search when its radius changes", async () => {
     let finish;
     fetch.mockImplementation(async url => url.includes("map-config") ? response({ provider: "osm" }) : new Promise(resolve => { finish = resolve; }));

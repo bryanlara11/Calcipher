@@ -59,7 +59,6 @@ export default function App() {
   const [previewMeters, setPreviewMeters] = useState(1000);
   const draggingRadius = useRef(false);
   const radiusKm = radiusMeters / 1000;
-  const [verifiedOnly, setVerifiedOnly] = useState(false);
   const [mapData, setMapData] = useState(null);
   const [mapBusy, setMapBusy] = useState(false);
   const [mapError, setMapError] = useState(null);
@@ -100,10 +99,7 @@ export default function App() {
     const t = setTimeout(() => setQuotaUntil(0), Math.max(0, quotaUntil - Date.now()));
     return () => clearTimeout(t);
   }, [quotaUntil]);
-  const pins = useMemo(() => {
-    const all = mapData?.branches ?? EMPTY;
-    return verifiedOnly ? all.filter(pin => pin.has_calorie_data) : all;
-  }, [mapData, verifiedOnly]);
+  const pins = useMemo(() => (mapData?.branches ?? EMPTY).filter(pin => pin.has_calorie_data), [mapData]);
 
   useEffect(() => {
     if (!searchViewport || page !== "nearby" || !config) return;
@@ -112,7 +108,7 @@ export default function App() {
     debounce.current = setTimeout(() => {
       if (Date.now() < quotaUntilRef.current) return; // cooling down: don't even ask the backend
       setMapBusy(true);
-      mapItems({ provider, ...location, radiusKm, viewport: searchViewport, includeUnmatched: true, signal: ctrl.signal })
+      mapItems({ provider, ...location, radiusKm, viewport: searchViewport, includeUnmatched: false, signal: ctrl.signal })
         .then((d) => {
           if (ctrl.signal.aborted) return;
           setMapData(d);
@@ -228,7 +224,7 @@ export default function App() {
     : mapData?.discovery?.error ? "Live restaurant discovery is unavailable. Showing any previously cached places. Try again later." : null;
   const nearbyStatus = mapBusy ? "Finding restaurants…" : mapError || discoveryWarning
     ? pins.length ? `${pins.length} saved restaurants · live search offline` : "Restaurant search couldn’t connect"
-    : mapData ? `${pins.length} restaurant${pins.length === 1 ? "" : "s"} nearby` : "Choose an area to explore";
+    : mapData ? pins.length ? `${pins.length} restaurant${pins.length === 1 ? "" : "s"} with nutrition nearby` : "No nearby restaurants with reviewed nutrition yet" : "Choose an area to explore";
   const chatDiscoveryIssue = lastChat?.inspector?.discovery?.some(d => d.error || d.source === "disabled");
   return (
     <div className="page-shell">
@@ -252,14 +248,13 @@ export default function App() {
             <div className="search-bottom-note"><Icon name="check" size={18} /><p>Missing nutrition and prices stay marked as unavailable.</p><a href="#/settings">About the data</a></div>
           </div>}
           {page === "nearby" && <section className="nearby-layout">
-            <div className="page-title-row"><div><h1 ref={heading} tabIndex={-1}>Nearby restaurants</h1><p className="page-lead">Tap the map to move your pin, or use your location.</p></div><button className="button-secondary" type="button" aria-expanded={filtersOpen} aria-controls="area-controls" onClick={() => setFiltersOpen(v => !v)}><Icon name="filter" size={18} />Area & filters</button></div>
+            <div className="page-title-row"><div><h1 ref={heading} tabIndex={-1}>Nearby restaurants</h1><p className="page-lead">Only restaurants with reviewed nutrition are shown. Move your pin to explore another area.</p></div><button className="button-secondary" type="button" aria-expanded={filtersOpen} aria-controls="area-controls" onClick={() => setFiltersOpen(v => !v)}><Icon name="filter" size={18} />Area & filters</button></div>
             {filtersOpen && <div className="area-controls" id="area-controls">
               <div className="radius-control"><div className="radius-heading"><label htmlFor="search-radius">Search radius</label><output htmlFor="search-radius">{formatRadius(previewMeters)}</output></div>
                 <input id="search-radius" type="range" aria-label="Search radius" aria-valuetext={formatRadius(previewMeters)} min={100} max={5000} step={100} value={previewMeters}
                   onPointerDown={event => { draggingRadius.current = true; event.currentTarget.setPointerCapture(event.pointerId); }}
                   onChange={event => { const meters = event.currentTarget.valueAsNumber; setPreviewMeters(meters); if (!draggingRadius.current) applyRadius(meters); }}
                   onLostPointerCapture={finishRadiusDrag} onBlur={finishRadiusDrag} /><div className="range-limits"><span>100 m</span><span>5 km</span></div></div>
-              <label className="nutrition-checkbox"><input type="checkbox" checked={verifiedOnly} onChange={event => setVerifiedOnly(event.target.checked)} />Only places with nutrition</label>
               <button type="button" onClick={useMyLocation} className="location-button"><Icon name="compass" size={17} />Use my location</button>
             </div>}
             <div className="nearby-toolbar"><p role="status">{nearbyStatus}</p><div className="nearby-actions">
@@ -268,9 +263,9 @@ export default function App() {
             </div></div>
             {alertText && <div role="alert" className="page-alert"><Icon name="info" size={18} /><p>{alertText}</p><CloseButton label="Dismiss message" onClick={dismissAlert} /></div>}
             <div className="nearby-map-shell" hidden={mapView !== "map"}><CalorieMap provider={provider} location={location} onMove={moveTo} onViewport={onViewport} radiusKm={previewMeters / 1000} pins={pins} results={lastChat?.results ?? EMPTY} focus={focus} theme={appearance.theme} />
-              <div className="map-key"><span><i className="legend-dot nutrition-dot" />Nutrition</span><span><i className="legend-dot other-dot" />No nutrition yet</span><span><i className="legend-dot location-dot" />Your pin</span></div>
+              <div className="map-key"><span><i className="legend-dot nutrition-dot" />Nutrition</span><span><i className="legend-dot location-dot" />Your pin</span></div>
             </div>
-            {mapView === "list" && <div className="nearby-list"><h2>Restaurants in this area</h2>{pins.length ? <ul>{pins.map(pin => <li key={pin.place_id ?? `${pin.osm_type}:${pin.osm_id}`}><button type="button" onClick={() => { locate(pin); setMapView("map"); }}><span><strong>{pin.poi_name}</strong><small>{pin.has_calorie_data ? `${pin.item_count} menu items with nutrition` : "Nutrition unavailable"}</small></span><span className="num">{pin.distance_km.toFixed(2)} km<Icon name="arrow" size={17} /></span></button></li>)}</ul> : <p>{mapBusy ? "Finding nearby places…" : mapError || discoveryWarning ? "Restaurant listings are temporarily unavailable." : "No restaurants found in this radius. Try a wider area."}</p>}{provider === "google" && <p>Restaurant locations from Google Maps.</p>}</div>}
+            {mapView === "list" && <div className="nearby-list"><h2>Restaurants in this area</h2>{pins.length ? <ul>{pins.map(pin => <li key={pin.place_id ?? `${pin.osm_type}:${pin.osm_id}`}><button type="button" onClick={() => { locate(pin); setMapView("map"); }}><span><strong>{pin.poi_name}</strong><small>{`${pin.item_count} menu items with nutrition`}</small></span><span className="num">{pin.distance_km.toFixed(2)} km<Icon name="arrow" size={17} /></span></button></li>)}</ul> : <p>{mapBusy ? "Finding nearby places…" : mapError || discoveryWarning ? "Restaurant listings are temporarily unavailable." : "No restaurants with reviewed nutrition in this area. Try a wider radius."}</p>}{provider === "google" && <p>Restaurant locations from Google Maps.</p>}</div>}
             <p className="nearby-footnote">{provider === "osm" ? "OpenStreetMap locations · " : "Google Maps locations · "}Menus and source prices may vary by branch.</p>
           </section>}
           {page === "chat" && <section className="chat-page"><div className="page-title-row"><div><h1 ref={heading} tabIndex={-1}>Meal chat</h1></div><button className="text-button" type="button" onClick={() => { setShowInspector(true); setInspectorOpen(true); }}>Retrieval details</button></div><p className="chat-page-context">Searching within {formatRadius(radiusMeters)} of your pin. <a href="#/nearby">Change area</a></p><div className="chat-page-panel">{chatDiscoveryIssue && <p className="chat-connection-note" role="status"><Icon name="info" size={17} />Restaurant search couldn’t connect. <a href="#/settings">Connection details</a></p>}<ChatPanel messages={messages} onSend={send} busy={busy || !config} onLocate={locate} /></div></section>}
