@@ -182,8 +182,9 @@ _(updated at the end of every completed task)_
   recovered a calorie candidate in one of three regions. Human-verified accuracy remains pending.
 - 302 backend tests and 30 frontend tests pass; lint and production build pass. These tests use
   fixtures for safeguards and do not establish successful live approved recommendations.
-- GitHub account dpsahagon was verified; an actual connector write still returns HTTP 403,
-  `Resource not accessible by integration`. No remote branch or PR was published.
+- GitHub account dpsahagon was verified. Terminal push published this feature branch successfully.
+  Connector blob and draft-PR writes return HTTP 403, `Resource not accessible by integration`;
+  no PR was opened. Shared main remains unchanged.
 - See docs/DATA-COLLECTION.md for commands and evidence boundaries. Approved-ID promotion and
   real approved recommendation demonstration remain dependent on the operator's selected IDs.
 
