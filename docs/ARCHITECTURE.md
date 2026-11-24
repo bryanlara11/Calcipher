@@ -1,8 +1,6 @@
-# AGENTS.md — CalCipher Project Context & Architectural Contract
+# CalCipher architecture and project status
 
-> **AI Agent Instruction:** Read this file at the start of every session. Treat the architecture,
-> invariants, and conventions below as strict ground truth. Update the
-> `Current Implementation Status` section at the end of every completed task.
+This document describes the project architecture, data safeguards and implementation status.
 
 ## 1. Project Overview & Core Data Reality
 
@@ -25,7 +23,7 @@ solves nutritional opacity when eating out in the Philippines.
 
 ```text
 calcipher/
-├── AGENTS.md                        # This file (CLAUDE.md just imports it)
+├── docs/ARCHITECTURE.md             # Architecture, safeguards and project status
 ├── docker-compose.yml               # PostgreSQL 16 (pgvector + pg_trgm) + backend
 ├── docker/initdb/01-extensions.sql  # CREATE EXTENSION vector, pg_trgm
 ├── backend/
@@ -162,7 +160,15 @@ an empty neighborhood would otherwise always look like a cache miss.
 
 ## 7. Current Implementation Status
 
-_(updated at the end of every completed task)_
+**2026-11-25 — branch summary and documentation cleanup**
+
+- Added a short overview of the interface, maps, ingestion and review improvements to the README
+  and PR description. Updated the current test counts and pilot status.
+- Replaced machine-specific checkout paths with portable examples and consolidated technical
+  notes here, with startup commands kept in the operator guide.
+- Documentation and comment changes only; application behavior and pending review status remain
+  unchanged. Existing verification: 302 backend tests, 30 frontend tests, lint and build passed.
+
 
 **2026-11-25 — authorized nutrition pilot and strict approval gate**
 
@@ -335,7 +341,7 @@ _(updated at the end of every completed task)_
       against embedded PG16 + pgvector via `pgserver`.
 - [x] Frontend: React 18 + react-leaflet 4 + Tailwind 3; map with matched/unmatched toggle, radius,
       draggable pin, brand menus in popups; chat with nutrition-facts result panels; inspector drawer.
-- [x] Dev tooling: `backend/dev_db.py` (embedded Postgres), `backend/run.py`, `.claude/launch.json`.
+- [x] Dev tooling: `backend/dev_db.py` (embedded Postgres), `backend/run.py`.
 
 **2026-11-17 — ingestion split + data-loading gaps fixed**
 

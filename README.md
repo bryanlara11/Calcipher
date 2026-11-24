@@ -4,7 +4,7 @@ Hybrid RAG for Philippine restaurant calories: nutrition data from **@anongcalor
 joined to real restaurant locations from **OpenStreetMap/Overpass** or **Google Places API (New)**, filtered by hard
 SQL constraints (calories, protein, distance), and ranked with **pgvector**.
 
-Architecture, invariants and status: see [AGENTS.md](AGENTS.md).
+Architecture, invariants and status: see [the architecture notes](docs/ARCHITECTURE.md).
 
 The ingestion path now supports **authorized local carousel images and captions** without
 Instagram access, human review before loading, nullable source-backed PHP prices, and hard
@@ -14,12 +14,21 @@ RoBERTa model are retained. The LLM can select a retrieved record; factual text 
 - [Operator guide: macOS setup, import, review, database, demo and troubleshooting](docs/OPERATIONS.md)
 - [Audit: findings, evidence, tests, limitations and GitHub handoff](docs/AUDIT.md)
 
+## Summary of changes
+
+- Refreshed the interface with the culinary logo, readable fonts, separate pages and light/dark themes.
+- Added restaurant discovery without API keys using OpenStreetMap, with optional Google support.
+- Improved carousel import, OCR review, source tracking and duplicate protection.
+- Imported 36 source-backed Philippine menu records across six brands, pending selected-ID approval.
+- Enforced exact nutrition, budget and distance limits; missing values remain unavailable.
+- Expanded regression coverage and documented collection, review and deployment steps.
+
 ## Branded interface and current verification
 
 Light, Dark and System modes persist locally. The supplied logo, simplified SVG icon, responsive
 Search, Nearby, Chat and Settings pages use cream/forest in Light mode and black with muted sage-green text in Dark mode. Maps keep their natural colors. The sidebar keeps the supplied logo without repeated brand text or navigation numbers. Settings uses separate appearance, locations and data cards, with technical setup collapsed. Nutrition and map filters open on demand; mobile uses bottom navigation. Search fields and chat history stay in memory across page changes. Inline PHP prices and slide
 references are review proposals; live Instagram retrieval is still unverified, not fixed by import.
-Current checks: 284 backend tests, 27 frontend tests, lint/build pass; npm audits report zero findings.
+Current checks: 302 backend tests, 30 frontend tests, lint/build pass; npm audits report zero findings.
 Use Node 22 LTS and npm 11.21.3 for the tested frontend setup (`npx --yes npm@11.21.3 ci`).
 
 ## Quick start on macOS
@@ -76,7 +85,7 @@ Overpass discovery keeps the existing 24-hour spatial cache, one-request semapho
 and failure cooldown. Philippines searches try the [Asia regional endpoint listed by OpenStreetMap](https://wiki.openstreetmap.org/wiki/Overpass_API#Public_Overpass_API_instances)
 first, followed by the global Overpass and Private.coffee endpoints. The regional endpoint was
 live-tested on 2026-11-24: 264 real restaurant locations within 1 km of UP Manila, plus a successful
-5 km widened chat discovery. Nutrition remains unavailable until the source catalog is loaded.
+5 km widened chat discovery. Nutrition recommendations remain unavailable until specific catalog records are approved.
 Public services have no availability guarantee. For a production launch, use a provider with capacity
 appropriate to your traffic. The nutrition catalog remains separate: location pins alone supply no
 nutrition facts or prices.

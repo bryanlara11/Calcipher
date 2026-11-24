@@ -2,8 +2,7 @@
 
 ## Install and configure
 
-The audit checkout is `/Users/deshny/Documents/Codex/2026-11-23/files-pasted-by-the-user-calcipher/work/Calcipher`,
-on `dpsahagon/instagram-ingestion-fix`. `origin` remains `https://github.com/bryanlara11/Calcipher.git`.
+Use your local `Calcipher` checkout on `dpsahagon/instagram-ingestion-fix`. `origin` remains `https://github.com/bryanlara11/Calcipher.git`.
 Start commands below from that repository root unless a different directory is specified.
 
 Tested: macOS arm64, Python 3.12.0, Git 2.50.1, Node 22.23.5 LTS, npm 11.21.3, Tesseract 5.5.4,
@@ -363,7 +362,7 @@ and image references are protected against unverified updates. An updated source
 under a new ID and reconciled through a new human review; do not overwrite raw evidence.
 
 The public Jollibee USA PDF verification is isolated from the Philippine development catalog.
-Its full table did not automatically parse. Agent-transcribed test records stayed unverified and
+Its full table did not automatically parse. Manually transcribed test records stayed unverified and
 were only loaded in a disposable verification database, with a non-live location fixture and an
 explicit warning in the template response. This is not an Instagram retrieval or live Places test.
 
@@ -388,7 +387,7 @@ Continue only when the login is `dpsahagon` and push is `true`. Decline any prom
 No password/token needs to be pasted into chat or committed.
 
 ```bash
-cd /Users/deshny/Documents/Codex/2026-11-23/files-pasted-by-the-user-calcipher/work/Calcipher
+cd /path/to/Calcipher
 git status --short --branch
 git -c credential.helper= -c 'credential.helper=!gh auth git-credential' push -u origin dpsahagon/instagram-ingestion-fix
 gh pr create --repo bryanlara11/Calcipher --base main --head dpsahagon/instagram-ingestion-fix \

@@ -32,7 +32,7 @@ MAX_CALORIES = 10_000
 UNKNOWN_SERVING = "serving size unavailable"
 
 # ---------------------------------------------------------------------------
-# Canonical text used for embeddings (shared with seed.py — see AGENTS.md invariants)
+# Canonical text used for embeddings (shared with seed.py — see docs/ARCHITECTURE.md invariants)
 # ---------------------------------------------------------------------------
 
 
