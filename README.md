@@ -1,7 +1,7 @@
 # CalCipher
 
 Hybrid RAG for Philippine restaurant calories: nutrition data from **@anongcaloriesnito** (OCR) is
-joined to real restaurant locations from **Google Places API (New)**, filtered by hard
+joined to real restaurant locations from **OpenStreetMap/Overpass** or **Google Places API (New)**, filtered by hard
 SQL constraints (calories, protein, distance), and ranked with **pgvector**.
 
 Architecture, invariants and status: see [AGENTS.md](AGENTS.md).
@@ -17,9 +17,9 @@ RoBERTa model are retained. The LLM can select a retrieved record; factual text 
 ## Branded interface and current verification
 
 Light, Dark and System modes persist locally. The supplied logo, simplified SVG icon, responsive
-meal filters, map, menus and chat share a forest-green/cream theme. Inline PHP prices and slide
+Search, Nearby, Chat and Settings pages use cream/forest in Light mode and black with muted sage-green text in Dark mode. Maps keep their natural colors. The sidebar keeps the supplied logo without repeated brand text or navigation numbers. Settings uses separate appearance, locations and data cards, with technical setup collapsed. Nutrition and map filters open on demand; mobile uses bottom navigation. Search fields and chat history stay in memory across page changes. Inline PHP prices and slide
 references are review proposals; live Instagram retrieval is still unverified, not fixed by import.
-Current checks: 278 backend tests, 14 frontend tests, lint/build pass; npm audits report zero findings.
+Current checks: 284 backend tests, 27 frontend tests, lint/build pass; npm audits report zero findings.
 Use Node 22 LTS and npm 11.21.3 for the tested frontend setup (`npx --yes npm@11.21.3 ci`).
 
 ## Quick start on macOS
@@ -40,8 +40,7 @@ SEED_DEMO_ITEMS=false SEED_DEMO_BRANCHES=false .venv/bin/python -m app.db.seed
 The tested Python dependency snapshot is in `backend/requirements-tested.txt`. `dev_db.py`
 creates `.env` with its database URL; preserve that URL and set `SEED_DEMO_ITEMS=false` there for
 a real-data pilot. Do not overwrite an existing `.env`. Start the frontend in another terminal
-with `cd frontend`, `npm ci`, then `npm run dev -- --host 127.0.0.1`. Google keys are still
-required for the production map/discovery; ingestion and the catalog work without them.
+with `cd frontend`, `npm ci`, then `npm run dev -- --host 127.0.0.1`. The map works without keys using Leaflet/OpenStreetMap tiles and cached Overpass discovery. Public services can time out; the UI reports discovery outages instead of treating them as empty results. Google remains optional when both keys are configured.
 
 ## Recommended local ingestion
 
@@ -61,7 +60,27 @@ Then run `.venv/bin/python -m app.ingest load --dry-run`, followed by `load`. Re
 review edits. Missing macros/prices remain null and missing servings show `serving size unavailable`.
 Prices require a source and human verification; budget searches exclude unknown prices.
 
-## Google Maps setup
+## Map providers and Google setup
+
+The frontend checks `GET /api/v1/map-config?browser_key_configured=true|false`. With both keys it
+uses Google Maps + Places; otherwise it uses OpenStreetMap + Overpass. Map/chat requests send
+`X-CalCipher-Map-Provider` so Google listings are never placed on an OSM map. The server key is
+never returned to the browser. External map code loads only on the Nearby page. OSM attribution
+remains visible; tiles are fetched normally from `tile.openstreetmap.org` without prefetching.
+
+The initial search radius is 1 km; expand it in **Nearby → Area & filters**. Pan and choose
+**Search this area** to move the search center. **List** shows the same discovered restaurants.
+Use **Settings** for appearance, data notes and Google configuration status.
+
+Overpass discovery keeps the existing 24-hour spatial cache, one-request semaphore, mirror fallback
+and failure cooldown. Philippines searches try the [Asia regional endpoint listed by OpenStreetMap](https://wiki.openstreetmap.org/wiki/Overpass_API#Public_Overpass_API_instances)
+first, followed by the global Overpass and Private.coffee endpoints. The regional endpoint was
+live-tested on 2026-11-24: 264 real restaurant locations within 1 km of UP Manila, plus a successful
+5 km widened chat discovery. Nutrition remains unavailable until the source catalog is loaded.
+Public services have no availability guarantee. For a production launch, use a provider with capacity
+appropriate to your traffic. The nutrition catalog remains separate: location pins alone supply no
+nutrition facts or prices.
+
 
 Enable billing, **Places API (New)** and **Maps JavaScript API** in your Google Cloud project.
 Set a Places-restricted server key in backend/.env as GOOGLE_PLACES_API_KEY.
@@ -69,10 +88,9 @@ Set a separate Maps JavaScript key in frontend/.env as VITE_GOOGLE_MAPS_API_KEY.
 Restrict the browser key to your website referrers (for local Vite, http://localhost:5173/*).
 Restart the API and Vite after editing their environment files.
 
-The map keeps restaurants with at least five Google ratings within the pin radius. Each map search uses one Google Nearby Search (up to 20 listings before filtering). After panning or zooming, choose **Search this area** to search the visible neighborhood. Brand searches use
+In Google mode, the map keeps restaurants with at least five Google ratings within the pin radius. Each map search uses one Google Nearby Search (up to 20 listings before filtering). After panning or zooming, choose **Search this area** to search the visible neighborhood. Brand searches use
 Google Text Search near the pin, then enforce the requested distance in SQL. Google Place IDs
-identify branches. Results are joined to the nutrition catalog per request. Existing OSM
-and demo branch rows do not participate in production searches. Google bills searches and
+identify branches. Results are joined to the nutrition catalog per request. Existing OSM and demo branch rows do not participate in Google-mode searches. No-key mode uses real OSM branch rows. Google bills searches and
 map loads separately. See the [pricing list](https://developers.google.com/maps/billing-and-pricing/pricing).
 
 ## Run with Docker
@@ -180,3 +198,10 @@ original media or an authorized export. See the operator guide for session recov
 
 Seed nutrition values are illustrative estimates and seed branch coordinates are approximate; both
 are flagged in the database (`is_verified = false`, `osm_type = 'seed'`).
+
+## Authorized nutrition collection
+
+See [the collection and human review guide](docs/DATA-COLLECTION.md). The current pilot contains
+36 real pending source-backed records across six PH brands; none is recommendation-eligible
+until the operator supplies the specific approved IDs. Missing values stay null; exact hard
+limits remain enforced.

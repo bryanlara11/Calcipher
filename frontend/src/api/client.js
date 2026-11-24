@@ -30,15 +30,16 @@ async function request(path, options = {}) {
   return body;
 }
 
-export function chat({ message, lat, lng, radiusKm, signal }) {
+export function chat({ message, lat, lng, radiusKm, signal, provider }) {
   return request("/api/v1/chat", {
     method: "POST",
     body: JSON.stringify({ message, lat, lng, radius_km: radiusKm }),
     signal,
+    headers: { "Content-Type": "application/json", "X-CalCipher-Map-Provider": provider ?? "osm" },
   });
 }
 
-export function mapItems({ lat, lng, radiusKm, viewport, includeUnmatched, signal }) {
+export function mapItems({ lat, lng, radiusKm, viewport, includeUnmatched, signal, provider }) {
   const params = new URLSearchParams({
     lat: lat.toFixed(6),
     lng: lng.toFixed(6),
@@ -46,7 +47,12 @@ export function mapItems({ lat, lng, radiusKm, viewport, includeUnmatched, signa
     include_unmatched: String(includeUnmatched),
   });
   if (viewport) viewport.split(",").forEach(value => params.append("viewport", value));
-  return request(`/api/v1/map-items?${params}`, { signal });
+  return request(`/api/v1/map-items?${params}`, { signal, headers: { "X-CalCipher-Map-Provider": provider ?? "osm" } });
+}
+
+export const browserMapsKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY?.trim() ?? "";
+export function mapConfig({ signal } = {}) {
+  return request(`/api/v1/map-config?browser_key_configured=${Boolean(browserMapsKey)}`, { signal });
 }
 
 export function brandItems(slug, { signal } = {}) {

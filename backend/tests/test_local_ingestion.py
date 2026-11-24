@@ -290,7 +290,9 @@ async def test_reviewed_source_update_preserves_human_authority(dirs, db_session
     assert row.calories == 400 and row.source_images == ["FIRST_1.png"]
     await db_session.commit()  # release the reader transaction before load's schema initialization
     write_csv_rows(dirs.reviewed_csv, [{**original, "calories": "410", "source_images": "RECHECKED_1.png"}])
-    await load_reviewed(dirs.reviewed_csv)
+    protected = await load_reviewed(dirs.reviewed_csv)
+    assert protected["written"] == 0
+    await load_reviewed(dirs.reviewed_csv, allow_verified_updates=True)
     await db_session.refresh(row)
     assert row.calories == 410 and row.source_images == ["RECHECKED_1.png"] and row.is_verified
 

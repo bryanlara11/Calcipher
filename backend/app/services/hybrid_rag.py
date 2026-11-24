@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import math
 import time
 import uuid
 from collections.abc import Sequence
@@ -19,7 +18,6 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.schemas import (
-    RELAXED_DISTANCE_KM,
     BranchPin,
     CatalogItem,
     ChatResponse,
@@ -38,7 +36,6 @@ from app.services.google_places import GooglePlacesDiscovery
 from app.services.query_parser import QueryParser
 
 TOP_K = 5
-CALORIE_RELAX_FACTOR = 1.15
 MAP_PIN_LIMIT = 500
 DEFAULT_SEMANTIC_QUERY = "filling meal"
 
@@ -72,13 +69,14 @@ candidates AS (
     SELECT DISTINCT ON (n.id)
            n.id AS item_id, n.brand_name, n.brand_slug, n.food_item, n.calories,
            n.protein_g, n.carbs_g, n.fat_g, n.serving_size, n.is_verified, n.source_post_url,
-           n.price_php, n.price_source_url, n.source_images,
+           n.price_php, n.price_source_url, n.source_images, n.provenance,
            nb.place_id, nb.attributions, nb.osm_type, nb.osm_id, nb.poi_name, nb.amenity_type, nb.latitude, nb.longitude,
            nb.address_hint, nb.distance_km,
            (n.embedding <=> CAST(:query_vec AS vector)) AS cosine_distance
     FROM nutrition_catalog AS n
     JOIN nearby AS nb ON nb.matched_brand_slug = n.brand_slug
-    WHERE nb.distance_km <= :max_distance_km
+    WHERE n.is_verified
+      AND nb.distance_km <= :max_distance_km
       AND (CAST(:max_cal AS integer) IS NULL OR n.calories <= CAST(:max_cal AS integer))
       AND (CAST(:min_protein AS numeric) IS NULL OR n.protein_g >= CAST(:min_protein AS numeric))
       AND (CAST(:max_price AS numeric) IS NULL OR (n.price_php IS NOT NULL AND n.is_verified
@@ -107,6 +105,7 @@ catalog AS (
     SELECT brand_slug, MIN(brand_name) AS brand_name, COUNT(*) AS item_count,
            MIN(calories) AS min_calories, MAX(protein_g) AS max_protein_g
     FROM nutrition_catalog
+    WHERE is_verified
     GROUP BY brand_slug
 )
 SELECT nb.*, c.brand_name, COALESCE(c.item_count, 0) AS item_count, c.min_calories,
@@ -128,13 +127,20 @@ PLACES_MAP_SQL = text(_MAP_QUERY.format(branches=_PLACES_FROM))
 BRAND_ITEMS_SQL = text(
     """
 SELECT id AS item_id, brand_name, food_item, calories, protein_g, carbs_g, fat_g, serving_size,
-       is_verified, source_post_url, price_php, price_source_url, source_images
+       is_verified, source_post_url, price_php, price_source_url, source_images, provenance
 FROM nutrition_catalog
-WHERE brand_slug = :brand_slug
+WHERE brand_slug = :brand_slug AND is_verified
 ORDER BY calories ASC
 LIMIT 100
 """
 )
+
+
+def _source_evidence(provenance: dict | None) -> dict[str, Any]:
+    metadata = provenance or {}
+    return {"source_classification": metadata.get("source_classification", "unknown"),
+            "collected_at": metadata.get("collected_at"),
+            "secondary_source_url": metadata.get("secondary_source_url")}
 
 
 def _f(value: Any) -> float | None:
@@ -194,6 +200,7 @@ async def retrieve(
             price_php=_f(r["price_php"]),
             price_source_url=r["price_source_url"],
             source_images=r["source_images"],
+            **_source_evidence(r["provenance"]),
             place_id=r["place_id"],
             attributions=r["attributions"] or [],
             osm_type=r["osm_type"],
@@ -273,36 +280,23 @@ async def brand_items(session: AsyncSession, brand_slug: str) -> list[CatalogIte
             price_php=_f(r["price_php"]),
             price_source_url=r["price_source_url"],
             source_images=r["source_images"],
+            **_source_evidence(r["provenance"]),
         )
         for r in rows
     ]
 
 
 def relaxation_ladder(c: SearchConstraints) -> list[tuple[str, SearchConstraints]]:
-    """Ordered fallbacks for a zero-result query: calories +15% -> 5 km -> both."""
-    steps: list[tuple[str, SearchConstraints]] = []
-    relaxed_cal = math.ceil(c.max_calories * CALORIE_RELAX_FACTOR) if c.max_calories is not None else None
-    can_widen = c.max_distance_km < RELAXED_DISTANCE_KM
-    if relaxed_cal is not None:
-        steps.append((
-            f"calorie limit raised 15% from {c.max_calories} to {relaxed_cal} kcal",
-            c.model_copy(update={"max_calories": relaxed_cal}),
-        ))
-    if can_widen:
-        steps.append((
-            f"search radius expanded from {c.max_distance_km:g} km to {RELAXED_DISTANCE_KM:g} km",
-            c.model_copy(update={"max_distance_km": RELAXED_DISTANCE_KM}),
-        ))
-    if relaxed_cal is not None and can_widen:
-        steps.append((
-            f"calorie limit raised 15% to {relaxed_cal} kcal and radius expanded to {RELAXED_DISTANCE_KM:g} km",
-            c.model_copy(update={"max_calories": relaxed_cal, "max_distance_km": RELAXED_DISTANCE_KM}),
-        ))
-    return steps
+    """Explicit calorie, protein, price and distance limits remain hard constraints.
+
+    The caller can submit a new request to broaden them; zero results never changes them.
+    Retained as a compatibility hook for the inspector/response contract.
+    """
+    return []
 
 
-def _trace(d: DiscoveryResult) -> DiscoveryTrace:
-    return DiscoveryTrace(**d.as_dict())
+def _trace(d: DiscoveryResult, discovery: BranchDiscoveryService | GooglePlacesDiscovery) -> DiscoveryTrace:
+    return DiscoveryTrace(**d.as_dict(), provider="google" if isinstance(discovery, GooglePlacesDiscovery) else "osm")
 
 
 class HybridRagService:
@@ -403,7 +397,7 @@ class HybridRagService:
             parser_used=parsed.parser_used,
             parser_warnings=parsed.warnings,
             constraints=constraints,
-            discovery=[_trace(d) for d in discoveries],
+            discovery=[_trace(d, self.discovery) for d in discoveries],
             embedder=self.embedder.name,
             candidate_count=result.candidate_count,
             retrieval_attempts=attempts,
@@ -425,4 +419,4 @@ class HybridRagService:
             session, lat=lat, lng=lng, radius_km=radius_km, include_unmatched=include_unmatched,
             places=discovery.places,
         )
-        return pins, _trace(discovery)
+        return pins, _trace(discovery, self.discovery)

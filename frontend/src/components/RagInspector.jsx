@@ -1,6 +1,8 @@
 const SOURCE_TEXT = {
-  live: "Google Places",
-  cache: "Recent Google Places result (no new call)",
+  live: "Live discovery",
+  cache: "Cached result (no new call)",
+  stale_cache_fallback: "Cached result; live discovery unavailable",
+  disabled: "Discovery disabled",
 };
 
 function Row({ k, children }) {
@@ -15,8 +17,9 @@ function Row({ k, children }) {
 function Discovery({ d, title }) {
   return (
     <div>
-      <h4 className="mb-1 font-bold">{title}</h4>
+      <h2 className="mb-1 font-bold">{title}</h2>
       <dl className="text-sm">
+        <Row k="Provider">{d.provider === "osm" ? "OpenStreetMap" : d.provider === "google" ? "Google Places" : "Unknown"}</Row>
         <Row k="Source">{SOURCE_TEXT[d.source] ?? d.source}</Row>
         <Row k="Radius">{(d.radius_m / 1000).toFixed(1)} km</Row>
         <Row k="POIs fetched / matched">
@@ -36,7 +39,7 @@ function Timings({ timings }) {
   const colors = { parse: "var(--forest)", discovery: "var(--mustard)", embed: "var(--coral)", retrieval: "var(--olive)", generation: "var(--tomato)" };
   return (
     <div>
-      <h4 className="mb-1 font-bold">Stage timings ({total.toFixed(0)} ms)</h4>
+      <h2 className="mb-1 font-bold">Stage timings ({total.toFixed(0)} ms)</h2>
       <div className="flex h-3 overflow-hidden rounded-sm border border-ink" role="img" aria-label="Stage timing breakdown">
         {stages.map((s) => (
           <div key={s} style={{ width: `${(timings[s] / total) * 100}%`, background: colors[s] }} />
@@ -99,7 +102,7 @@ export default function RagInspector({ open, onToggle, onClose, chat, map }) {
               <Discovery key={i} d={d} title={i === 0 ? "Chat: restaurant discovery" : "Chat: widened discovery"} />
             ))}
             <div>
-              <h4 className="mb-1 font-bold">Parsed constraints ({insp.parser_used})</h4>
+              <h2 className="mb-1 font-bold">Parsed constraints ({insp.parser_used})</h2>
               <dl className="text-sm">
                 <Row k="Max calories">{c.max_calories ?? "none"}</Row>
                 <Row k="Max price (PHP)">{c.max_price_php ?? "none"}</Row>
@@ -115,7 +118,7 @@ export default function RagInspector({ open, onToggle, onClose, chat, map }) {
               )}
             </div>
             <div>
-              <h4 className="mb-1 font-bold">Hybrid retrieval</h4>
+              <h2 className="mb-1 font-bold">Hybrid retrieval</h2>
               <dl className="text-sm">
                 <Row k="Rows passing SQL filters">{insp.candidate_count}</Row>
                 <Row k="Attempts (incl. relaxation)">{insp.retrieval_attempts}</Row>

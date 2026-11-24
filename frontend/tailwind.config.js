@@ -13,7 +13,7 @@ export default {
         warn: "rgb(var(--danger) / <alpha-value>)",
       },
       fontFamily: {
-        sans: ['"Archivo"', "system-ui", "sans-serif"],
+        sans: ['-apple-system', 'BlinkMacSystemFont', '"Segoe UI"', 'Arial', 'sans-serif'],
       },
     },
   },

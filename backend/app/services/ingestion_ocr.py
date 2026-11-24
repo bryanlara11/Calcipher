@@ -45,14 +45,14 @@ def _fmt(value: float | Decimal | None) -> str | None:
 def build_context_string(
     brand_name: str,
     food_item: str,
-    serving_size: str,
+    serving_size: str | None,
     calories: int,
     protein_g: float | Decimal | None = None,
     carbs_g: float | Decimal | None = None,
     fat_g: float | Decimal | None = None,
     price_php: float | Decimal | None = None,
 ) -> str:
-    parts = [f"{food_item} from {brand_name} ({serving_size}). {calories} kcal"]
+    parts = [f"{food_item} from {brand_name} ({serving_size or UNKNOWN_SERVING}). {calories} kcal"]
     for label, value in (("protein", protein_g), ("carbs", carbs_g), ("fat", fat_g)):
         formatted = _fmt(value)
         if formatted is not None:
@@ -109,7 +109,7 @@ class ParsedNutrition:
     brand_slug: str
     food_item: str
     calories: int
-    serving_size: str = UNKNOWN_SERVING
+    serving_size: str | None = UNKNOWN_SERVING
     protein_g: float | None = None
     carbs_g: float | None = None
     fat_g: float | None = None
@@ -119,6 +119,7 @@ class ParsedNutrition:
     price_php: float | None = None
     price_source_url: str | None = None
     source_images: list[str] = field(default_factory=list)
+    provenance: dict[str, Any] = field(default_factory=dict)
 
     @property
     def context_string(self) -> str:
@@ -269,6 +270,8 @@ def parse_nutrition_text(
         return []
     brand_name, brand_slug = brand
     brand_tokens = set(brand_slug.split())
+    size_columns = sum(bool(re.search(pattern, text, re.I)) for pattern in
+                       (r"\b(?:small|smau)\b", r"\b(?:medium|medi)\b", r"\blarge\b")) >= 2
 
     records: list[dict[str, Any]] = []
     last_name: str | None = None
@@ -348,6 +351,9 @@ def parse_nutrition_text(
             price_php=rec.get("price_php"),
             price_source_url=source_post_url if rec.get("price_php") is not None else None,
         )
+        if size_columns:
+            item.is_suspect = True
+            item.warnings.append("table_columns_need_review")
         if item.serving_size == UNKNOWN_SERVING:
             item.warnings.append("missing_serving_size")
         if item.price_php is not None:
@@ -481,7 +487,7 @@ def ocr_image(path: str | Path, *, lang: str = "eng", psm: int = 6) -> str:
 # ---------------------------------------------------------------------------
 
 _UPDATABLE = ("brand_name", "calories", "protein_g", "carbs_g", "fat_g", "source_post_url",
-              "context_string", "embedding", "embedding_model", "is_verified", "price_php", "price_source_url", "source_images")
+              "context_string", "embedding", "embedding_model", "is_verified", "price_php", "price_source_url", "source_images", "provenance")
 
 
 async def upsert_catalog_items(
@@ -491,11 +497,12 @@ async def upsert_catalog_items(
     *,
     verified: Sequence[bool] | None = None,
     commit: bool = True,
+    allow_verified_updates: bool = False,
 ) -> int:
     """Insert or refresh catalog rows, embedding each with the current embedder.
 
-    `verified[i]` marks row i as human-audited. Audited rows overwrite whatever is stored.
-    Unaudited rows never overwrite a row that is already verified.
+    `verified[i]` marks row i as human-audited. Existing reviewed corrections require the
+    separate allow_verified_updates opt-in. Unaudited rows can never replace reviewed rows.
     """
     from sqlalchemy.dialects.postgresql import insert
 
@@ -518,7 +525,8 @@ async def upsert_catalog_items(
             "price_php": i.price_php,
             "price_source_url": i.price_source_url,
             "source_images": i.source_images,
-            "serving_size": i.serving_size,
+            "provenance": i.provenance,
+            "serving_size": None if i.serving_size == UNKNOWN_SERVING else i.serving_size,
             "is_verified": flag,
             "source_post_url": i.source_post_url,
             "context_string": ctx,
@@ -536,7 +544,7 @@ async def upsert_catalog_items(
         stmt = stmt.on_conflict_do_update(
             constraint="uq_catalog_item",
             set_={col: stmt.excluded[col] for col in _UPDATABLE},
-            where=None if audited else NutritionCatalog.is_verified.is_(False),
+            where=None if audited and allow_verified_updates else NutritionCatalog.is_verified.is_(False),
         ).returning(NutritionCatalog.id)
         written += len((await session.execute(stmt)).all())
     if commit:

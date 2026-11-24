@@ -34,13 +34,14 @@ from app.services.hybrid_rag import HybridRagService, brand_items
 from app.services.llm import GeminiClient, LLMClient
 from app.services.google_places import GooglePlacesDiscovery, PlacesQuotaLimited, PlacesUnavailable
 from app.services.query_parser import QueryParser
+from app.services.overpass_client import BranchDiscoveryService, OverpassClient
 
 logger = logging.getLogger("calcipher")
 
 RATE_LIMITED_PREFIXES = ("/api/v1/chat", "/api/v1/map-items", "/api/v1/brands")
 
 
-def build_rag_service(settings: Settings, brands: BrandRegistry) -> HybridRagService:
+def build_rag_service(settings: Settings, brands: BrandRegistry, provider: str = "google") -> HybridRagService:
     llm: LLMClient | None = None
     if settings.gemini_api_key is not None:
         try:
@@ -49,10 +50,19 @@ def build_rag_service(settings: Settings, brands: BrandRegistry) -> HybridRagSer
             )
         except Exception:  # missing package or bad key format: degrade to regex/template
             logger.exception("Gemini client unavailable; continuing without LLM")
-    discovery = GooglePlacesDiscovery(
-        settings.google_places_api_key, brands.refresh_if_stale,
-        cache_ttl_s=settings.places_cache_ttl_s, state_path=settings.places_state_path,
-    )
+    if provider == "osm":
+        discovery = BranchDiscoveryService(
+            OverpassClient(settings.overpass_urls, user_agent=settings.overpass_user_agent,
+                           timeout_s=settings.overpass_timeout_s),
+            brands.refresh_if_stale, ttl_hours=settings.overpass_cache_ttl_hours,
+            max_radius_m=settings.overpass_max_radius_m, enabled=settings.overpass_enabled,
+            failure_cooldown_s=settings.overpass_failure_cooldown_s,
+        )
+    else:
+        discovery = GooglePlacesDiscovery(
+            settings.google_places_api_key, brands.refresh_if_stale,
+            cache_ttl_s=settings.places_cache_ttl_s, state_path=settings.places_state_path,
+        )
     return HybridRagService(
         discovery=discovery,
         parser=QueryParser(llm),
@@ -70,7 +80,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     brands = BrandRegistry()
     async with get_sessionmaker()() as session:
         await brands.refresh(session)
-        app.state.rag = build_rag_service(settings, brands)
+        app.state.osm_rag = build_rag_service(settings, brands, "osm")
+        app.state.rag = (build_rag_service(settings, brands) if settings.google_places_api_key
+                         else app.state.osm_rag)
         stale = await count_stale_embeddings(session, app.state.rag.embedder.name)
     if stale:
         logger.warning(
@@ -89,6 +101,16 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 
 def get_rag_service(request: Request) -> HybridRagService:
+    provider = request.headers.get("X-CalCipher-Map-Provider")
+    if provider not in (None, "osm", "google"):
+        raise HTTPException(status_code=400, detail="Unknown map provider")
+    if provider == "google" and not request.app.state.settings.google_places_api_key:
+        raise HTTPException(status_code=503, detail="Google Places is not configured")
+    if provider == "osm":
+        rag = getattr(request.app.state, "osm_rag", None)
+        if rag is None:
+            raise HTTPException(status_code=503, detail="OpenStreetMap discovery is starting up")
+        return rag
     rag = getattr(request.app.state, "rag", None)
     if rag is None:
         raise HTTPException(status_code=503, detail="Service is starting up")
@@ -119,7 +141,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         CORSMiddleware,
         allow_origins=settings.cors_origins,
         allow_methods=["GET", "POST"],
-        allow_headers=["Content-Type", "X-Request-ID"],
+        allow_headers=["Content-Type", "X-Request-ID", "X-CalCipher-Map-Provider"],
         expose_headers=["X-Request-ID", "Retry-After"],
     )
 
@@ -161,6 +183,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def unhandled_handler(request: Request, exc: Exception) -> JSONResponse:
         logger.exception("Unhandled error (request_id=%s)", getattr(request.state, "request_id", None))
         return _error(500, "Internal server error", "internal_error", request)
+
+    @app.get("/api/v1/map-config")
+    async def map_config(browser_key_configured: bool = False) -> dict[str, object]:
+        # Only capability flags leave the server. Never return the server Places key.
+        google_ready = bool(settings.google_places_api_key) and browser_key_configured
+        return {
+            "provider": "google" if google_ready else "osm",
+            "google_places_configured": bool(settings.google_places_api_key),
+            "osm_discovery_enabled": settings.overpass_enabled,
+        }
 
     @app.get("/api/v1/health")
     async def health(request: Request, session: SessionDep) -> dict[str, object]:

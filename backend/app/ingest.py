@@ -66,7 +66,7 @@ REVIEW_COLUMNS = [
     "action", "verified", "shortcode", "source_post_url", "brand_name", "brand_slug", "food_item",
     "serving_size", "calories", "protein_g", "carbs_g", "fat_g", "is_suspect", "warnings",
     "price_php", "price_source_url",
-    "source_images",
+    "source_images", "provenance_json",
 ]
 _YES = {"yes", "y", "true", "1"}
 _NO = {"no", "n", "false", "0", ""}
@@ -322,7 +322,7 @@ def scrape(dirs: DataDirs, *, profile: str, max_new: int, login: str | None, sle
         request_timeout=30.0,
     )
     fatal = (ie.AbortDownloadException, ie.TooManyRequestsException, ie.LoginRequiredException,
-             ie.ConnectionException, ie.BadCredentialsException)
+             ie.ConnectionException, ie.BadCredentialsException, ie.BadResponseException)
     if max_new <= 0:
         return ScrapeSummary()
     try:
@@ -505,6 +505,7 @@ def _item_row(shortcode: str, item: ParsedNutrition) -> dict[str, str]:
         "price_php": _fmt_num(item.price_php),
         "price_source_url": item.price_source_url or "",
         "source_images": ";".join(item.source_images),
+        "provenance_json": json.dumps(item.provenance, ensure_ascii=False) if item.provenance else "",
     }
 
 
@@ -562,7 +563,7 @@ def run_parse(dirs: DataDirs) -> ParseSummary:
             items.extend(parsed_items)
         unique: dict[tuple[str, str, str], ParsedNutrition] = {}
         for item in items:
-            key = (item.brand_slug, item.food_item.casefold(), item.serving_size.casefold())
+            key = (item.brand_slug, item.food_item.casefold(), (item.serving_size or "").casefold())
             if key in unique:
                 old = unique[key]
                 if any(getattr(old, k) != getattr(item, k)
@@ -683,10 +684,23 @@ def read_reviewed(path: Path) -> ReviewedItems:
             or not macro_energy_consistent(calories, **macros)
         ):
             out.errors.append(f"row {line}: suspect nutrition requires correction or human verification")
-        serving = r.get("serving_size") or UNKNOWN_SERVING
-        if len(food_item) > 255 or len(brand_name) > 255 or len(slug) > 255 or len(serving) > 100:
+        serving = r.get("serving_size") or None
+        if serving == UNKNOWN_SERVING:
+            serving = None
+        provenance = {}
+        if r.get("provenance_json"):
+            try:
+                provenance = json.loads(r["provenance_json"])
+                if not isinstance(provenance, dict):
+                    raise ValueError("expected an object")
+                from app.services.source_review import validate_provenance
+                out.errors.extend(f"row {line}: {error}" for error in validate_provenance(provenance, verified_raw in _YES))
+            except (ValueError, TypeError) as exc:
+                out.errors.append(f"row {line}: invalid provenance_json: {exc}")
+                provenance = {}
+        if len(food_item) > 255 or len(brand_name) > 255 or len(slug) > 255 or len(serving or "") > 100:
             out.errors.append(f"row {line}: text too long (food/brand max 255, serving max 100 chars)")
-        key = (slug, food_item.lower(), serving.lower())
+        key = (slug, food_item.lower(), (serving or "").lower())
         if key in seen:
             out.errors.append(f"row {line}: duplicate of row {seen[key]} (same brand, item and serving)")
         seen[key] = line
@@ -697,12 +711,13 @@ def read_reviewed(path: Path) -> ReviewedItems:
             serving_size=serving, source_post_url=r.get("source_post_url") or None, **macros,
             price_php=price, price_source_url=price_source,
             source_images=[name.strip() for name in r.get("source_images", "").split(";") if name.strip()],
+            provenance=provenance,
         ))
         out.verified.append(verified_raw in _YES)
     return out
 
 
-async def load_reviewed(path: Path, *, dry_run: bool = False) -> dict[str, Any]:
+async def load_reviewed(path: Path, *, dry_run: bool = False, allow_verified_updates: bool = False) -> dict[str, Any]:
     from app.db.maintenance import rematch_branches
     from app.db.session import get_engine, get_sessionmaker, init_db
     from app.services.brand_matcher import load_brand_matcher
@@ -724,7 +739,7 @@ async def load_reviewed(path: Path, *, dry_run: bool = False) -> dict[str, Any]:
     await init_db(get_engine())
     async with get_sessionmaker()() as session:
         result["written"] = await upsert_catalog_items(
-            session, reviewed.items, get_embedder(), verified=reviewed.verified, commit=False
+            session, reviewed.items, get_embedder(), verified=reviewed.verified, commit=False, allow_verified_updates=allow_verified_updates
         )
         result["branches"] = await rematch_branches(session, await load_brand_matcher(session), commit=False)
         await session.commit()
@@ -761,12 +776,21 @@ async def db_status() -> dict[str, Any]:
     from app.services.embedder import get_embedder
 
     async with get_sessionmaker()() as session:
-        total = (await session.execute(select(func.count()).select_from(NutritionCatalog))).scalar_one()
-        scraped = (await session.execute(
-            select(func.count()).select_from(NutritionCatalog).where(NutritionCatalog.source_post_url.is_not(None))
-        )).scalar_one()
+        counts = (await session.execute(select(
+            func.count().label("catalog_rows"),
+            func.count().filter(NutritionCatalog.is_verified.is_(True)).label("approved_rows"),
+            func.count().filter(NutritionCatalog.is_verified.is_(False)).label("pending_rows"),
+            func.count().filter(NutritionCatalog.source_post_url.is_not(None)).label("source_backed_rows"),
+            func.count(func.distinct(NutritionCatalog.brand_slug)).label("catalog_brands"),
+            func.count(func.distinct(NutritionCatalog.brand_slug)).filter(NutritionCatalog.is_verified.is_(True)).label("approved_brands"),
+            func.count(NutritionCatalog.calories).label("rows_with_calories"),
+            func.count(NutritionCatalog.protein_g).label("rows_with_protein"),
+            func.count().filter(NutritionCatalog.is_verified.is_(True), NutritionCatalog.price_php.is_not(None),
+                                NutritionCatalog.price_source_url.is_not(None)).label("rows_with_checked_prices"),
+        ).select_from(NutritionCatalog))).mappings().one()
         stale = await count_stale_embeddings(session, get_embedder().name)
-    return {"catalog_rows": total, "scraped_rows": scraped, "stale_embeddings": stale}
+    return {**dict(counts), "scraped_rows": counts["source_backed_rows"], "stale_embeddings": stale}
+
 
 
 async def reembed(only_stale: bool) -> int:
@@ -818,6 +842,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     p = sub.add_parser("load", help="validate reviewed.csv and upsert it into the database")
     p.add_argument("--file", type=Path, default=None, help="defaults to data/review/reviewed.csv")
     p.add_argument("--dry-run", action="store_true", help="validate and count only")
+    p.add_argument("--allow-reviewed-updates", action="store_true", help="explicitly approve replacing existing reviewed corrections")
 
     p = sub.add_parser("reembed", help="recompute embeddings with the current embedder")
     p.add_argument("--all", action="store_true", help="re-embed every row, not only stale ones")
@@ -860,7 +885,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         print(f"Review {dirs.reviewed_csv} (set action=load|skip, verified=yes|no), then run `load`.")
     elif args.stage == "load":
         ensure_selector_event_loop_policy()
-        result = asyncio.run(load_reviewed(args.file or dirs.reviewed_csv, dry_run=args.dry_run))
+        result = asyncio.run(load_reviewed(args.file or dirs.reviewed_csv, dry_run=args.dry_run, allow_verified_updates=args.allow_reviewed_updates))
         _print(result)
         if result["errors"]:
             raise SystemExit(f"{len(result['errors'])} validation error(s); nothing was written.")

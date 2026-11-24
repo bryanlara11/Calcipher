@@ -9,12 +9,14 @@ const CHIPS = [
   { label: "Grilled, high protein", text: "grilled chicken with high protein under 450 kcal" },
 ];
 
+const SOURCE_LABELS = { official: "Brand-published nutrition", community_reported: "Community-reported nutrition", estimated: "Estimated nutrition", unknown: "Source type unavailable" };
 const fmtG = (v) => (v == null ? "—" : `${Number(v).toLocaleString(undefined, { maximumFractionDigits: 2 })} g`);
 
 export function NutritionPanel({ item, index, onLocate }) {
   return <article className="nutrition-card">
-    <div className="flex items-start justify-between gap-3"><div><p className="eyebrow mb-2">{item.brand_name}</p><h3>{item.food_item}</h3></div><span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-mango text-xs font-bold text-[#064D2E]" aria-label={`Map pin ${index}`}>{index}</span></div>
-    <p className="mt-2 text-xs text-slate-mute">{item.serving_size}</p>
+    <div className="flex items-start justify-between gap-3"><div><p className="eyebrow mb-2">{item.brand_name}</p><h2>{item.food_item}</h2></div><span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-mango text-xs font-bold text-[#064D2E]" aria-label={`Map pin ${index}`}>{index}</span></div>
+    <p className="mt-2 text-xs text-slate-mute">{item.serving_size || "Serving size unavailable"}</p>
+    {item.source_classification && <p className="mt-1 text-sm text-slate-mute">{SOURCE_LABELS[item.source_classification]}</p>}
     <div className="kcal-row"><strong className="num">{item.calories} <span>kcal</span></strong><span>Calories</span></div>
     <dl className="nutrition-macros">{[["Protein", item.protein_g], ["Carbs", item.carbs_g], ["Fat", item.fat_g]].map(([name, value]) => <div key={name}><dt>{name}</dt><dd className="num">{fmtG(value)}</dd></div>)}</dl>
     <div className="price-note">{item.price_php == null ? "Price unavailable" : `Source price ₱${item.price_php.toFixed(2)}`}
@@ -22,7 +24,8 @@ export function NutritionPanel({ item, index, onLocate }) {
     </div>
     <div className="mt-3 flex items-center justify-between gap-2 text-xs"><button type="button" className="flex min-w-0 items-center gap-1 text-left font-bold text-ube" onClick={() => onLocate(item)}><Icon name="pin" size={14} />{item.poi_name}</button><span className="num shrink-0 text-slate-mute">{item.distance_km.toFixed(2)} km</span></div>
     {item.place_id && <p className="mt-2 text-[10px] text-slate-mute"><a className="underline" target="_blank" rel="noreferrer" href={`https://www.google.com/maps/search/?${new URLSearchParams({ api: "1", query: item.poi_name, query_place_id: item.place_id })}`}>View branch on Google Maps</a>{item.attributions?.map(a => <span key={a.provider}> · {a.provider}</span>)}</p>}
-    <p className="verification-note">{item.is_verified ? "Checked against source." : "Unverified; may contain OCR errors."} {/^https?:\/\//i.test(item.source_post_url || "") && <a className="underline" href={item.source_post_url} target="_blank" rel="noreferrer">Nutrition source</a>}</p>
+    <p className="verification-note">{item.is_verified ? "Checked against source." : "Unverified; may contain OCR errors."} {/^https?:\/\//i.test(item.source_post_url || "") && <a className="underline" href={item.source_post_url} target="_blank" rel="noreferrer">Nutrition source</a>} {item.collected_at && <span>Collected {item.collected_at}. </span>}{/^https?:\/\//i.test(item.secondary_source_url || "") && <a className="underline" href={item.secondary_source_url} target="_blank" rel="noreferrer">Collection source</a>}</p>
+    <p className="mt-2 text-xs text-slate-mute">Brand nutrition; availability at this branch is not confirmed.</p>
   </article>;
 }
 
@@ -83,7 +86,7 @@ export default function ChatPanel({ messages, onSend, busy, onLocate }) {
     <section className="flex h-full min-h-0 flex-col" aria-label="Chat">
       <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-4" aria-live="polite">
         {messages.length === 0 && (
-          <div className="chat-empty"><span className="assistant-mark"><Icon name="leaf" size={24} /></span><h3>What are you<br />in the mood for?</h3><p>Tell me what sounds good, your calorie goal, or your budget. I’ll look for meals at nearby restaurants with source information you can check.</p><p className="mt-3">Try “chicken under 500 kcal and PHP150”. Unknown prices stay unknown.</p></div>
+          <div className="chat-empty"><span className="assistant-mark"><Icon name="leaf" size={24} /></span><h2>Search for a meal</h2><p>Enter a food and any calorie, protein, or budget limits.</p><p className="mt-3">Example: “chicken under 500 kcal and PHP150”.</p></div>
         )}
         {messages.map((m) => (
           <Message key={m.id} msg={m} onLocate={onLocate} />
@@ -129,10 +132,10 @@ export default function ChatPanel({ messages, onSend, busy, onLocate }) {
             disabled={busy || !draft.trim()}
             className="button-primary"
           >
-            Ask
+            Search
           </button>
         </form>
-        <p className="composer-note">Recommendations come with sources. Check before you choose.</p>
+        <p className="composer-note">Check nutrition and prices against the listed sources.</p>
       </div>
     </section>
   );

@@ -58,7 +58,8 @@ class NutritionCatalog(Base):
     price_php: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))
     price_source_url: Mapped[str | None] = mapped_column(Text)
     source_images: Mapped[list[str]] = mapped_column(JSONB, default=list, server_default="[]")
-    serving_size: Mapped[str] = mapped_column(String(100), nullable=False)
+    serving_size: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    provenance: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default="{}")
     is_verified: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
     source_post_url: Mapped[str | None] = mapped_column(Text)
     context_string: Mapped[str] = mapped_column(Text, nullable=False)
@@ -78,7 +79,8 @@ class NutritionCatalog(Base):
         CheckConstraint("brand_slug <> ''", name="ck_catalog_slug_nonempty"),
         CheckConstraint("price_php IS NULL OR (price_php >= 0 AND price_source_url IS NOT NULL AND is_verified)",
                         name="ck_catalog_price_source"),
-        UniqueConstraint("brand_slug", "food_item", "serving_size", name="uq_catalog_item"),
+        UniqueConstraint("brand_slug", "food_item", "serving_size", name="uq_catalog_item",
+                         postgresql_nulls_not_distinct=True),
         Index(
             "ix_nutrition_catalog_embedding_hnsw",
             "embedding",

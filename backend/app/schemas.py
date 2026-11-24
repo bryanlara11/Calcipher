@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import date
 from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -45,7 +46,13 @@ class ChatRequest(BaseModel):
 # ---------- shared ----------
 
 
-class RetrievedItem(BaseModel):
+class SourceEvidence(BaseModel):
+    source_classification: Literal["official", "community_reported", "estimated", "unknown"] = "unknown"
+    collected_at: date | None = None
+    secondary_source_url: str | None = None
+
+
+class RetrievedItem(SourceEvidence):
     source_images: list[str] = Field(default_factory=list)
     item_id: str
     brand_name: str
@@ -55,7 +62,7 @@ class RetrievedItem(BaseModel):
     protein_g: float | None
     carbs_g: float | None
     fat_g: float | None
-    serving_size: str
+    serving_size: str | None
     is_verified: bool
     source_post_url: str | None
     price_php: float | None = None
@@ -74,6 +81,7 @@ class RetrievedItem(BaseModel):
 
 
 class DiscoveryTrace(BaseModel):
+    provider: Literal["google", "osm"] | None = None
     source: Literal["cache", "live", "stale_cache_fallback", "disabled"]
     cache_hit: bool
     fetched_count: int = 0
@@ -144,7 +152,7 @@ class MapItemsResponse(BaseModel):
     discovery: DiscoveryTrace
 
 
-class CatalogItem(BaseModel):
+class CatalogItem(SourceEvidence):
     source_images: list[str] = Field(default_factory=list)
     item_id: str
     brand_name: str
@@ -153,7 +161,7 @@ class CatalogItem(BaseModel):
     protein_g: float | None
     carbs_g: float | None
     fat_g: float | None
-    serving_size: str
+    serving_size: str | None
     is_verified: bool
     source_post_url: str | None
     price_php: float | None = None

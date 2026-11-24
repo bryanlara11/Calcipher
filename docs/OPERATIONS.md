@@ -138,19 +138,19 @@ Back up `data/review/reviewed.csv`, then open it in a UTF-8-aware editor. Column
 
 ```text
 action,verified,shortcode,source_post_url,brand_name,brand_slug,food_item,serving_size,
-calories,protein_g,carbs_g,fat_g,is_suspect,warnings,price_php,price_source_url
+calories,protein_g,carbs_g,fat_g,is_suspect,warnings,price_php,price_source_url,source_images,provenance_json
 ```
 
 1. All generated rows start `action=skip, verified=no`. Compare each field to originals/captions.
    Correct brand, food, serving and numbers; explicitly set `action=load` for desired rows.
-2. Keep absent macros/prices blank (null). Blank serving becomes `serving size unavailable`.
+2. Keep absent macros/prices blank (null). Blank serving is stored as SQL NULL.
    Missing calories cannot load: keep the placeholder skipped until evidence supplies them.
    Explicit zero is accepted. Fractional calorie proposals are flagged because the existing
    database requires whole kcal; a human must resolve the representation from the original.
 3. Fix conflicting/ambiguous/Atwater warnings or retain `skip`. Suspect unverified rows cannot
    load. Set `verified=yes` only after a human checks evidence. It attests to the transcription,
    not independent scientific validation of the source. An intentionally unverified load remains
-   unverified in the database, menu and chat.
+   unverified in the database and is excluded from menus, map nutrition counts and chat recommendations.
 4. Optional prices require PHP (at most two decimals), an HTTP(S) `price_source_url`, and
    `verified=yes` after checking the same item/serving against that price source. Do not infer
    prices from calories, another portion, or a Places price category. Source prices may vary
@@ -159,7 +159,7 @@ calories,protein_g,carbs_g,fat_g,is_suspect,warnings,price_php,price_source_url
 Synthetic example row (not nutritional evidence):
 
 ```csv
-action,verified,shortcode,source_post_url,brand_name,brand_slug,food_item,serving_size,calories,protein_g,carbs_g,fat_g,is_suspect,warnings,price_php,price_source_url
+action,verified,shortcode,source_post_url,brand_name,brand_slug,food_item,serving_size,calories,protein_g,carbs_g,fat_g,is_suspect,warnings,price_php,price_source_url,source_images,provenance_json
 load,no,FIXTURE,urn:calcipher:test,Fixture Kitchen,fixture kitchen,Fixture Bowl,1 bowl,400,20,,,no,,,
 ```
 
@@ -211,12 +211,26 @@ Instagram collection was executed in this audit.
 
 ## Run and demonstrate
 
-Keep the database URL and add `GOOGLE_PLACES_API_KEY` to `backend/.env`, restricted to Places API
+Keep the database URL. For optional Google mode, add `GOOGLE_PLACES_API_KEY` to `backend/.env`, restricted to Places API
 (New). Add a different `VITE_GOOGLE_MAPS_API_KEY` to `frontend/.env`, restricted to Maps JavaScript
 API and your local referrers (`http://127.0.0.1:5173/*`, `http://localhost:5173/*`). Enable billing
 and both APIs in Cloud. Optional `GEMINI_API_KEY` enables selection/intent extraction; regex and
 template responses work without it. The LLM can select only a retrieved item ID; code renders
 all factual text. Unknown IDs or extra claims cause fallback.
+
+No Google keys are needed for the default OpenStreetMap map. Leave the browser key blank and
+`OVERPASS_ENABLED=true` for OSM restaurant discovery. Google mode activates only when the browser
+key and server Places key are both present. See **Settings → Map connection**. Capability flags
+are available at `/api/v1/map-config`; the server Places key is never exposed. Map/chat requests
+carry `X-CalCipher-Map-Provider: osm|google`, including through the Vite proxy. No-key mode uses
+the existing 24-hour database cache, one request at a time, public mirror fallback and failure
+cooldown. Philippines searches now use `https://ovp.dresel.systems/api-as/interpreter` first (Asia regional data), with global Overpass and Private.coffee fallbacks. Live map and widened chat discovery succeeded on 2026-11-24. The old Kumi mirror has moved to `overpass.private.coffee`.
+
+The interface has `#/search`, `#/nearby`, `#/chat`, `#/settings` pages. Search fields and chat
+history survive navigation until refresh; there is no persistent storage of restaurant listings.
+The initial radius is 1 km. Open area controls to change it; map/list share the same results.
+A discovery outage leaves the basemap usable and reports that listings are unavailable. Location
+permission is requested only after the explicit location button.
 
 Backend terminal, from repository root:
 
@@ -249,8 +263,8 @@ curl --fail -H 'Content-Type: application/json' \
 Use a brand/meal actually in your review; the Jollibee example does not imply real data was
 loaded. Open `http://127.0.0.1:5173`, select an area with a known branch, open its menu and chat,
 and inspect serving, verification and source information. Test a budget only with price evidence.
-The inspector shows nutritional and PHP constraints. Calorie/radius relaxation is announced;
-budget caps never relax. Production Places discovery requires at least five reported ratings
+The inspector shows nutritional and PHP constraints. Calorie, protein, budget and radius caps
+remain exact; the application does not widen them automatically. Production Places discovery requires at least five reported ratings
 and one search returns up to 20 listings before filtering, so the map is not an exhaustive census.
 
 For a labelled illustrative demo, the existing seed command supports `SEED_DEMO_ITEMS=true`.
@@ -292,7 +306,7 @@ test fixtures truncate catalog and branch tables. Use only a disposable test dat
 | vector missing | Use pgserver or PostgreSQL with pgvector, not SQLite/ordinary PostgreSQL without vector. |
 | pg_trgm warning | Expected on pgserver; only the optional legacy trigram index is skipped. |
 | Stale embeddings | Match load/API backend settings, then `python -m app.ingest reembed --all`. |
-| Map key message / Places 503 | Configure both separate Google keys, APIs and billing, then restart API/Vite. Ingestion still works. |
+| Map / discovery | No keys: OSM tiles + cached Overpass discovery. Public endpoint timeout: show cached places and a visible warning; retry later. Optional Google mode needs both separate keys, APIs and billing, then an API/Vite restart. Settings shows configuration presence only, not credential validity. |
 | Places 429 | Respect Retry-After and persisted cooldown; check project quota/billing. Do not keep restarting. |
 | No budget results | Unknown prices are excluded. Supply verified price evidence or change the cap. |
 | Model download unavailable | Use a cached model or consistently use hash plus re-embedding, labelled as a lexical demo. |
@@ -306,12 +320,13 @@ and execution evidence is in [AUDIT.md](AUDIT.md). The added test runner is patc
 
 The navigation uses the supplied culinary logo, optimized as WebP without changing its artwork
 or proportions. A separate cloche/chart SVG is the simplified favicon and app icon. Light mode
-uses warm cream/forest green; dark mode uses green surfaces/cream text. Both use shared semantic
-tokens in `src/index.css`, mapped through Tailwind, including map popups, forms, cards and inspector.
-Use the **Appearance** selector for Light, Dark or System. Preference is saved under
+uses warm cream/forest green; dark mode uses black surfaces and muted sage-green text. Maps retain their natural provider colors. Both use shared semantic
+tokens in `src/index.css`, mapped through Tailwind, including map popups, forms, cards and inspector. Sidebar navigation has no numbers or repeated brand text; only the main logo remains above it. Settings groups appearance, restaurant locations, nutrition/prices and optional Google setup. Reconnect to API clears an old connection failure after the backend restarts.
+Use **Settings → Appearance** for Light, Dark or System. Preference is saved under
 `calcipher.theme`; System responds to OS changes. A small script runs in the document head before
 React to avoid a wrong-theme flash. Storage failure falls back to the current visit. Escape closes
-chat/retrieval details. The mobile filter disclosure reveals calorie/protein/PHP controls.
+retrieval details or map filters. Search, Nearby, Chat and Settings have separate hash URLs and
+support browser Back/Forward. Nutrition and area controls are disclosed on demand at every size.
 
 Frontend verification uses Node 22 LTS. npm 10 encountered an optional-peer resolver error with
 current test tooling during setup; the verified toolchain uses npm 11 without a global install:
@@ -383,3 +398,6 @@ gh pr create --repo bryanlara11/Calcipher --base main --head dpsahagon/instagram
 The user has already approved these operations after identity/access verification. A normal
 push will reject an unexpected divergent remote branch; investigate rather than forcing it.
 Do not merge the draft without review and approval.
+
+For the current authorized pilot, dataset-bound approval receipts and source evidence, see
+[DATA-COLLECTION.md](DATA-COLLECTION.md).

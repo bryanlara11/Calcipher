@@ -76,7 +76,7 @@ def template_answer(items: Sequence[RetrievedItem], constraints: SearchConstrain
         lines.append(
             f"{n}. {it.food_item} — {it.brand_name} ({it.poi_name}, {it.distance_km:.2f} km): "
             f"{it.calories} kcal, protein {_fmt_g(it.protein_g)}, carbs {_fmt_g(it.carbs_g)}, "
-            f"fat {_fmt_g(it.fat_g)} · {it.serving_size}"
+            f"fat {_fmt_g(it.fat_g)} · {it.serving_size or 'serving size unavailable'}"
             + (f" · PHP {it.price_php:.2f} (source price; branch prices may vary)"
                if it.price_php is not None else " · price unavailable")
         )

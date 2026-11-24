@@ -14,10 +14,12 @@ solves nutritional opacity when eating out in the Philippines.
 - Nutrition data comes from authorized local originals/captions (recommended) or authorized
   **`@anongcaloriesnito`** Instaloader access, followed by `pytesseract` OCR. Posts contain **brand/chain names, food item names, serving sizes, calories
   and macros**, but **NO geographic coordinates or branch addresses**.
-- Production locations come from Google Places API (New) and display on Google Maps. Live
-  listings join to the catalog by matched brand slug using a request-scoped SQL recordset.
-  Seed branches, Overpass tables and their tests below describe the legacy offline fixtures.
-  Google discovery supersedes the Overpass/cache and Leaflet requirements throughout this contract.
+- The user selected no-key OpenStreetMap/Overpass mode on 2026-11-24. Leaflet displays OSM
+  locations; the existing spatial cache joins them to nutrition by matched brand slug. Google
+  Maps/Places support remains available when both browser and server keys are configured.
+  Google listings join through a request-scoped SQL recordset and display only on Google Maps.
+  `/api/v1/map-config` exposes capability flags, never server secrets; map/chat requests select
+  the matching service through `X-CalCipher-Map-Provider`. Do not mix provider locations on maps.
 
 ## 2. Repository Structure
 
@@ -48,7 +50,7 @@ calcipher/
 │   │   │   ├── llm.py               # Gemini (google-genai) wrapper; optional
 │   │   │   ├── query_parser.py      # LLM + deterministic regex constraint extractor
 │   │   │   ├── generator.py         # Grounded answer generation + template fallback + grounding check
-│   │   │   ├── hybrid_rag.py        # Spatial join + hard SQL filters + pgvector ranking + relaxation
+│   │   │   ├── hybrid_rag.py        # Approved-only spatial join, exact hard filters, pgvector ranking
 │   │   │   └── ingestion_ocr.py     # OCR building blocks: text parser, OpenCV preprocessing, Tesseract, upsert
 │   │   └── db/
 │   │       ├── session.py           # Async engine/session, init_db (extensions, tables, indexes)
@@ -59,11 +61,11 @@ calcipher/
     ├── package.json, vite.config.js, tailwind.config.js, postcss.config.js, index.html
     └── src/
         ├── main.jsx, index.css
-        ├── App.jsx                  # Split-pane Map + RAG Chat + Inspector UI
+        ├── App.jsx                  # Search / Nearby / Chat / Settings hash pages; shared state
         ├── components/
-        │   ├── CalorieMap.jsx       # React-Leaflet map: matched (colored) vs unmatched (grey) pins
+        │   ├── CalorieMap.jsx       # Lazy Leaflet/OSM or Google map, selected with discovery provider
         │   ├── ChatPanel.jsx        # Conversational UI & quick-filter chips
-        │   └── RagInspector.jsx     # Debug drawer: Overpass source, parser, SQL candidates, timings
+        │   └── RagInspector.jsx     # Debug drawer: actual provider/source, parser, SQL candidates, timings
         └── api/client.js            # Fetch wrapper for FastAPI endpoints
 ```
 
@@ -79,7 +81,9 @@ embedder produced the vector; added via `ALTER TABLE ... ADD COLUMN IF NOT EXIST
 Unique: `(brand_slug, food_item, serving_size)` → idempotent seeding/ingestion.
 Additive optional fields: `price_php NUMERIC(10,2)`, `price_source_url TEXT`. A price requires
 nonnegative value, source and human verification. Missing prices remain null; unknown servings
-use the explicit `serving size unavailable` status to retain the non-null serving contract.
+are SQL NULL. `provenance JSONB NOT NULL DEFAULT '{}'` preserves classification, collection date,
+per-field source links, snapshot hashes and the actual human approval reference. The unique
+identity uses PostgreSQL NULLS NOT DISTINCT to make repeated unknown-serving imports idempotent.
 
 ### `osm_branch_cache` (spatial layer)
 PK **`(osm_type, osm_id)`** — *deliberate deviation from a bare `osm_id` PK*: OSM node, way and
@@ -110,8 +114,8 @@ an empty neighborhood would otherwise always look like a cache miss.
    → top K=5, plus `COUNT(*) OVER ()` candidate count.
 4. **Grounded generation** (`generator.GroundedGenerator`): only the K records go to the LLM inside
    `<retrieved_records>`; user text inside `<user_query>`. The LLM may return only a retrieved item ID;
-   all factual text is rendered by code. Unknown IDs/extra claims use the template. **Relaxation ladder** on zero results:
-   calories +15% → distance 5 km → both; the notice is prepended deterministically.
+   all factual text is rendered by code. Unknown IDs/extra claims use the template. **Exact hard limits:**
+   calorie, protein, budget and distance constraints never widen automatically on zero results.
 
 ## 5. Invariants (do not break)
 
@@ -132,8 +136,10 @@ an empty neighborhood would otherwise always look like a cache miss.
 - **No invented availability:** missing macros/prices are null, missing servings are explicitly
   unavailable, and missing calories remain skipped review placeholders. Prices require checked
   source evidence. `max_price_php` is a bound SQL filter that excludes null prices and never relaxes.
-- **Verification is human-only:** rows become `is_verified` only via `verified=yes` in
-  reviewed.csv. Unverified writes never overwrite verified rows; demo seeding never overwrites
+- **Verification is human-only:** rows become `is_verified` only through an actual human review
+  action reflected in reviewed CSV or a dataset-hash-bound approval receipt. Pending records are
+  excluded from retrieval, map nutrition counts, menus and the brand matcher. Existing verified
+  corrections require explicit `load --allow-reviewed-updates` to change. Unverified writes never overwrite verified rows; demo seeding never overwrites
   scraped (`source_post_url` set) or verified rows; `--purge-demo-items` never deletes them.
 - **Branch matches are refreshed after brand changes:** `rematch_branches` only fills unmatched
   branches or clears slugs whose brand left the catalog (the OSM brand tag isn't cached). The API's
@@ -157,6 +163,105 @@ an empty neighborhood would otherwise always look like a cache miss.
 ## 7. Current Implementation Status
 
 _(updated at the end of every completed task)_
+
+**2026-11-25 — authorized nutrition pilot and strict approval gate**
+
+- Preserved navigation, no-key maps, natural tiles and black/muted-sage appearance.
+- One bounded Python Instagram attempt failed at post metadata. Public browser fallback retrieved
+  one full eight-slide 7-Eleven carousel/caption; a second Army Navy post was partially inspected.
+- Collected 36 source-backed candidates across six PH brands, compared visible HTML/JSON-LD,
+  and checked six KFC rows against the original official table. One live request also verified
+  the new bounded secondary-source collector. None of this proves automatic Instagram access.
+- Loaded 36 real pending records into the persistent PostgreSQL catalog: 36 calorie, nine protein,
+  six carbohydrate, six fat values; zero current PHP prices; zero approved records while specific
+  human-approved IDs are outstanding. Production excludes all pending records.
+- Added provenance, nullable servings with NULL-safe uniqueness, immutable review/approval receipts,
+  protected reviewed updates, bounded secondary collection and assisted image-region observations.
+- User requires exact calorie/distance limits; this supersedes historical relaxation behavior.
+- Real OCR: eight images processed; seven unsafe full-image proposals all skipped; assisted crops
+  recovered a calorie candidate in one of three regions. Human-verified accuracy remains pending.
+- 302 backend tests and 30 frontend tests pass; lint and production build pass. These tests use
+  fixtures for safeguards and do not establish successful live approved recommendations.
+- GitHub account dpsahagon was verified; an actual connector write still returns HTTP 403,
+  `Resource not accessible by integration`. No remote branch or PR was published.
+- See docs/DATA-COLLECTION.md for commands and evidence boundaries. Approved-ID promotion and
+  real approved recommendation demonstration remain dependent on the operator's selected IDs.
+
+
+
+**2026-11-25 - natural map colors and muted sage accents**
+
+- Removed the OSM green filter and Google theme recoloring. Both map providers now retain their
+  natural colors in either appearance mode; the radius overlay uses a subtle neutral blue-grey.
+- Replaced bright dark-mode greens with muted sage: body #AEC1AD, accents #92AD94 and buttons
+  #8FA88F. Black backgrounds remain. This supersedes the prior bright green/map tint choice.
+- 27 frontend tests, including both themes' contrast/axe checks, ESLint and build pass.
+- Browser verified natural tiles (computed filter: none), the sage palette in Dark mode and
+  264 real restaurant locations. Restored the user's observed Light preference after checking.
+  No backend/discovery behavior changed.
+
+
+
+**2026-11-24 - black/green theme, logo-only navigation and live discovery repair**
+
+- Removed navigation numbers, repeated CalCipher/Meals & nutrition text, breadcrumb brand text
+  and the bottom rail icon. The original top logo and useful source attribution remain.
+- Dark mode uses black (#000000) with green text (#9AE1AF), near-black cards, green accents and
+  a matching darkened OSM basemap. Browser theme-color follows the selected appearance.
+- Settings is now a dedicated component with appearance, locations and nutrition/price cards;
+  verification/privacy and optional Google setup stay collapsed. An API reconnect action clears
+  stale connection failures after a backend restart. Current map health overrides older chat errors.
+- Replaced the failing default discovery path with the OSM-listed Asia regional endpoint
+  `https://ovp.dresel.systems/api-as/interpreter`, retaining global Overpass/Private.coffee fallbacks,
+  caching, single-flight requests and cooldowns. API restarted with the new endpoint.
+- Live API: 264 restaurants within 1 km of UP Manila; first fetch stored 660 named OSM locations.
+  Widened chat discovery also succeeded (3654 named POIs fetched), with no discovery errors.
+  These are real OSM locations. Nutrition catalog remains empty; no meal facts/prices were invented.
+- Repeated per-message outage paragraphs removed; failures have one short connection status.
+  Map/list resizing ignores hidden map dimensions and locate actions return to the top of the map.
+- 284 backend and 27 frontend tests pass; ESLint/build and diff check pass. Added meaningful
+  regression checks for API reconnect and a single warning across repeated failed chat searches.
+  Both themes/all four pages retain axe structural and CSS token contrast checks.
+- Browser verified desktop/mobile Settings, actual black/green colors, absence of rail numbers and
+  bottom icons, live map/list with real pins, and live chat with no discovery warning. Normal
+  viewport restored; Dark mode selected; local tab left on Settings for review. Main unchanged.
+
+
+
+**2026-11-24 - no-key maps and focused navigation**
+
+- User chose OpenStreetMap without keys, with Google retained. Added Leaflet 1.9.4; basemap
+  loads without configuration. Restored the existing Overpass cache/discovery service as the
+  no-key provider; updated its old Kumi mirror to Private.coffee. No invented keys/data.
+- Capability endpoint and explicit request provider keep Google Places data on Google Maps.
+  Both Google keys must be present for the UI to select Google; server secrets never leave API.
+  Google script errors/auth failures/timeouts are visible. Existing quota cooldown remains.
+- Separate Search, Nearby, Chat and Settings hash pages; desktop rail/mobile bottom navigation.
+  Nutrition/area filters open on demand. Search form and transcript persist across navigation;
+  stale searches abort after location/radius changes. Map/list, pan-to-search, geolocation,
+  menus, source/verification information, inspector and Light/Dark/System are retained.
+- System fonts and 16px body/input text retained; quieter cream/forest design with the supplied
+  logo and direct wording. Map code is loaded only on Nearby; initial radius is 1 km.
+- 284 backend tests and 25 frontend tests pass, including provider isolation/secrets, OSM ID
+  namespaces, route/state behavior, panning, cancellation and all four pages' structural axe
+  checks in both themes. ESLint/build pass; npm full audit reports zero vulnerabilities.
+- Browser: live OSM tiles, map keyboard panning, Search this area, Back/Forward, direct refresh,
+  live chat/inspector, appearance and desktop/768px/390px layouts verified. No horizontal
+  overflow in inspected views. Vite/API restarted and left running locally.
+- External limitation: public Overpass attempts returned 502/timeouts (alternate public service
+  also returned 504); listings show an explicit outage with cached fallback. Basemap remains
+  usable. Real catalog is still empty; Google mode cannot be live-tested without credentials.
+  No production nutrition or demo data was added. Main remains unchanged.
+
+
+**2026-11-24 - simpler wording and readable typography**
+
+- Replaced marketing slogans and decorative italic headings with direct search/map wording.
+- Uses the system sans-serif font, 16px body/input text and larger supporting labels in both themes.
+  Removed external font loading and the decorative map grid; retained the supplied logo and all controls.
+- Frontend lint, 14 tests and production build pass. Desktop and 390px mobile views checked;
+  mobile input text is 16px with no horizontal overflow. Backend/API behavior is unchanged.
+
 
 **2026-11-24 - branded frontend, security fixes and ingestion verification**
 

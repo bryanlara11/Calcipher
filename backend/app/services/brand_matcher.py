@@ -194,7 +194,7 @@ class BrandMatcher:
 async def load_brand_matcher(session: AsyncSession) -> BrandMatcher:
     from app.models import NutritionCatalog
 
-    rows = await session.execute(select(NutritionCatalog.brand_slug).distinct())
+    rows = await session.execute(select(NutritionCatalog.brand_slug).where(NutritionCatalog.is_verified.is_(True)).distinct())
     return BrandMatcher(rows.scalars().all())
 
 
