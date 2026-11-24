@@ -4,7 +4,6 @@ import ThemeControl from "./ThemeControl.jsx";
 export default function SettingsPage({ headingRef, appearance, provider, config, configError, discoveryIssue, onReconnect, browserKeyConfigured }) {
   const offline = Boolean(configError || discoveryIssue);
   return <section className="settings-page">
-    <span className="section-number">PREFERENCES & DATA</span>
     <h1 ref={headingRef} tabIndex={-1}>Settings & data</h1>
     <p className="page-lead">Adjust the appearance and see where your results come from.</p>
     <div className="settings-grid">
