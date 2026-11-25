@@ -18,7 +18,7 @@ import { useFavorites } from "./favorites.js";
 import MenuDataPage from "./components/MenuDataPage.jsx";
 import MealPlanPage from "./components/MealPlanPage.jsx";
 import { MealPlanContext, useMealPlan } from "./mealPlan.js";
-import { coarseLocation, locationErrorMessage, locationNote, radiusViewport, readDeviceLocation } from "./deviceLocation.js";
+import { coarseLocation, locationErrorMessage, locationNote, locationPermission, radiusViewport, readDeviceLocation } from "./deviceLocation.js";
 
 const PAGES = { home: ["Home", "home"], search: ["Search", "search"], nearby: ["Nearby", "pin"], chat: ["Chat", "chat"], plan: ["Meal plan", "calendar"], favorites: ["Favorites", "heart"], settings: ["Settings", "sun"], data: ["About menu data", "info"] };
 function currentPage() { const page = window.location.hash.slice(2); return PAGES[page] ? page : "home"; }
@@ -188,6 +188,7 @@ export default function App() {
   const locateToken = useRef(0);
   const locatingRef = useRef(false);
   const pinBeforeDevice = useRef(null);
+  const manualPin = useRef(false);
   const locationRef = useRef(location);
   locationRef.current = location;
   const stopLocating = useCallback(() => {
@@ -204,6 +205,7 @@ export default function App() {
     }
     stopLocating();
     pinBeforeDevice.current = null;
+    manualPin.current = true; // a spot the user chose: don't replace it with an automatic reading
     setPinFromDevice(false);
     placePin(next, viewport);
     return true;
@@ -256,6 +258,7 @@ export default function App() {
         return;
       }
       if (!pinBeforeDevice.current) pinBeforeDevice.current = locationRef.current;
+      manualPin.current = false;
       setPinFromDevice(true);
       placePin(next, radiusViewport(next, radiusMeters));
       setFocus({ ...next, t: Date.now() });
@@ -265,6 +268,19 @@ export default function App() {
       setGeoError(locationErrorMessage(code, preferences.mapsEnabled));
     });
   }
+  const locateDeviceRef = useRef(locateDevice);
+  locateDeviceRef.current = locateDevice;
+
+  // Once the browser already allows location for this site (granted after a tap), opening
+  // Nearby uses it automatically. This never shows a prompt: with "prompt", "denied" or no
+  // Permissions API it waits for a tap. A pin the user placed by hand this visit is kept.
+  const autoLocateTried = useRef(false);
+  useEffect(() => {
+    if (page !== "nearby") { autoLocateTried.current = false; return; }
+    if (autoLocateTried.current || !config || !preferences.locationEnabled || manualPin.current) return;
+    autoLocateTried.current = true;
+    locationPermission().then(state => { if (state === "granted") locateDeviceRef.current(); });
+  }, [page, config, preferences.locationEnabled]);
 
   async function send(text, { fromSearch = false, filters } = {}) {
     if (chatRequest.current) return;

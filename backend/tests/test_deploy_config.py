@@ -51,3 +51,17 @@ def test_map_items_body_validates_coverage_radius_and_extra_fields():
                 {"lat": 14.6, "lng": 120.98, "viewport": [1, 2, 3]}):
         with pytest.raises(pydantic.ValidationError):
             MapItemsRequest(**bad)
+
+
+async def test_page_revalidates_while_hashed_assets_cache(tmp_path):
+    (tmp_path / "index.html").write_text("<!doctype html><title>CalCipher</title>", encoding="utf-8")
+    (tmp_path / "assets").mkdir()
+    (tmp_path / "assets" / "index-abc123.js").write_text("console.log(1)", encoding="utf-8")
+    app = create_app(Settings(_env_file=None, static_dir=tmp_path))
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        page = await client.get("/")
+        bundle = await client.get("/assets/index-abc123.js")
+        api = await client.get("/api/v1/map-config")
+    assert page.headers["cache-control"] == "no-cache"
+    assert "immutable" in bundle.headers["cache-control"]
+    assert "cache-control" not in api.headers

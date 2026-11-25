@@ -41,7 +41,7 @@ beforeEach(() => {
     throw new Error(`Unexpected request: ${url}`);
   }));
 });
-afterEach(() => { delete navigator.geolocation; });
+afterEach(() => { delete navigator.geolocation; delete navigator.permissions; });
 
 async function openNearby() {
   window.history.replaceState(null, "", "/#/nearby");
@@ -58,8 +58,8 @@ describe("device location on Nearby", () => {
     expect(geo.getCurrentPosition).not.toHaveBeenCalled();
     expect(geo.watchPosition).not.toHaveBeenCalled();
     expect(mapRequests()).toEqual([{ lat: 14.5785, lng: 120.985 }]);
-    expect(screen.getByText(/Reads your device’s location once, only when you tap/).textContent).toContain("OpenStreetMap");
-    expect(screen.getByText(/only when you tap/).textContent).not.toContain("Google");
+    expect(screen.getByText(/Uses your device’s location when you tap/).textContent).toContain("OpenStreetMap");
+    expect(screen.getByText(/when you tap/).textContent).not.toContain("Google");
   });
 
   it("takes one ordinary-accuracy reading per tap and refreshes the map and list with one lookup", async () => {
@@ -95,7 +95,7 @@ describe("device location on Nearby", () => {
     await openNearby();
     await userEvent.click(locateButton());
     act(() => geo.pending[0].fail({ code: 1 }));
-    expect((await screen.findByRole("alert")).textContent).toMatch(/Location access is blocked.*Your pin hasn’t moved/);
+    expect((await screen.findByRole("alert")).textContent).toMatch(/Location is blocked for this site.*Your pin hasn’t moved/);
     expect(map().dataset.lat).toBe("14.5785");
     expect(screen.getByText("2 catalog locations nearby")).toBeTruthy();
     expect(mapRequests()).toHaveLength(1);
@@ -225,5 +225,56 @@ describe("collapsible restaurant menus", () => {
     expect(screen.getByText("Beta synthetic meal")).toBeTruthy();
     const alphaCard = screen.getByRole("heading", { name: "Alpha" }).closest("article");
     expect(within(alphaCard).getByRole("button", { name: /favorites/ })).toBeTruthy();
+  });
+});
+
+describe("automatic location once allowed", () => {
+  const permission = state => Object.defineProperty(navigator, "permissions", { configurable: true,
+    value: { query: vi.fn(async ({ name }) => ({ state: name === "geolocation" ? state : "prompt" })) } });
+
+  it("moves the pin on opening Nearby when the site is already allowed", async () => {
+    permission("granted");
+    window.history.replaceState(null, "", "/#/nearby");
+    render(<App />);
+    await waitFor(() => expect(geo.getCurrentPosition).toHaveBeenCalledTimes(1));
+    act(() => geo.pending[0].ok({ coords: DEVICE }));
+    await waitFor(() => expect(map().dataset.lat).toBe("14.601"));
+    await waitFor(() => expect(mapRequests().at(-1)).toEqual({ lat: 14.601, lng: 120.988 }));
+    const last = fetch.mock.calls.filter(([url]) => url.includes("map-items")).at(-1);
+    expect(JSON.parse(last[1].body).device_location).toBe(true);
+  });
+
+  it("never prompts by itself when permission is undecided or blocked", async () => {
+    for (const state of ["prompt", "denied"]) {
+      permission(state);
+      window.history.replaceState(null, "", "/#/nearby");
+      const { unmount } = render(<App />);
+      await userEvent.click(await screen.findByRole("button", { name: "Report test viewport" }));
+      await screen.findByText("2 catalog locations nearby");
+      expect(geo.getCurrentPosition).not.toHaveBeenCalled();
+      unmount();
+    }
+  });
+
+  it("respects the Settings switch and keeps a pin placed by hand", async () => {
+    permission("granted");
+    localStorage.setItem("calcipher.preferences.v1", JSON.stringify({ mapsEnabled: true, locationEnabled: false }));
+    window.history.replaceState(null, "", "/#/nearby");
+    const { unmount } = render(<App />);
+    await userEvent.click(await screen.findByRole("button", { name: "Report test viewport" }));
+    await screen.findByText("2 catalog locations nearby");
+    expect(geo.getCurrentPosition).not.toHaveBeenCalled();
+    unmount();
+
+    localStorage.clear();
+    window.history.replaceState(null, "", "/#/nearby");
+    render(<App />);
+    await waitFor(() => expect(geo.getCurrentPosition).toHaveBeenCalledTimes(1));
+    await userEvent.click(screen.getByRole("button", { name: "Move test pin" })); // discards the pending reading
+    act(() => geo.pending[0].ok({ coords: DEVICE }));
+    await userEvent.click(screen.getByRole("link", { name: "Chat" }));
+    await userEvent.click(screen.getByRole("link", { name: "Nearby" }));
+    expect(map().dataset.lat).toBe("14.59");
+    expect(geo.getCurrentPosition).toHaveBeenCalledTimes(1);
   });
 });

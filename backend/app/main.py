@@ -346,6 +346,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     if settings.static_dir is not None and (settings.static_dir / "index.html").is_file():
         app.mount("/", StaticFiles(directory=settings.static_dir, html=True), name="frontend")
 
+        # Phones must pick up a new release: revalidate the page every time, while the
+        # content-hashed bundles under /assets/ can be cached for good.
+        @app.middleware("http")
+        async def frontend_cache_headers(request: Request, call_next: Callable[[Request], Awaitable[Response]]) -> Response:
+            response = await call_next(request)
+            path = request.url.path
+            if not path.startswith("/api/"):
+                immutable = path.startswith("/assets/") and response.status_code == 200
+                response.headers.setdefault("Cache-Control", "public, max-age=31536000, immutable" if immutable else "no-cache")
+            return response
+
     return app
 
 
