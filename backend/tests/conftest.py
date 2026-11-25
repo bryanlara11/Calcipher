@@ -104,7 +104,7 @@ async def db_engine(pg_url: str) -> AsyncIterator[AsyncEngine]:
     if not _SCHEMA_READY:
         _SCHEMA_READY.update(await init_db(engine))
     async with engine.begin() as conn:
-        await conn.execute(text("TRUNCATE nutrition_catalog, osm_branch_cache, overpass_fetch_log"))
+        await conn.execute(text("TRUNCATE meal_ratings, nutrition_catalog, osm_branch_cache, overpass_fetch_log"))
     yield engine
     await engine.dispose()
 

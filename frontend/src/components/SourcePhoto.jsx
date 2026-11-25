@@ -1,5 +1,7 @@
+import catalogMedia from "../catalogMedia.json";
 const SOURCE = "https://www.instagram.com/p/DYUCaaOklAh/";
 const PHOTOS = {
+  ...catalogMedia.images,
   "DYUCaaOklAh_5.jpg": { url: "/media/big-bite-junior-source.webp", alt: "Original menu photo showing Big Bite Junior Hotdog" },
   "DYUCaaOklAh_4.jpg": { url: "/media/big-bite-cheddar-source.webp", alt: "Original menu photo showing Big Bite Cheddar Cheese Hotdog" },
   "DYUCaaOklAh_2.jpg": { url: "/media/big-bite-jumbo-source.webp", alt: "Original menu photo showing Big Bite Jumbo Classic Hotdog" },
@@ -11,7 +13,7 @@ export function brandPhoto(slug) {
     "7 eleven": { url: "/media/7-eleven-brand-source.webp", alt: "7-Eleven storefront in the original source post; branch unspecified", source: SOURCE },
     "mary grace": { url: "/media/mary-grace-brand-source.webp", alt: "Mary Grace cafe in the source post; pictured branch unspecified", source: "https://www.instagram.com/p/DYSHI0-kmWe/" },
     "tim ho wan": { url: "/media/tim-ho-wan-brand-source.webp", alt: "Tim Ho Wan at SM North EDSA in the source post; not a photo of every branch", source: "https://www.instagram.com/p/DXjQ6Htkr9h/" },
-  }[slug] || null;
+  }[slug] || catalogMedia.brands[slug] || null;
 }
 
 export default function SourcePhoto({ item }) {
@@ -20,6 +22,6 @@ export default function SourcePhoto({ item }) {
       ? { url: "/media/tim-ho-wan-pork-buns-source.webp", alt: "Source screenshot showing Tim Ho Wan baked buns with BBQ pork" } : null);
   if (!photo) return null;
   return <figure className="source-photo"><a href={photo.url} target="_blank" rel="noreferrer"><img src={photo.url} alt={photo.alt} loading="lazy" /></a>
-    <figcaption>Source image · Prices printed in the image may be historical.</figcaption>
+    <figcaption>{photo.source ? <a href={photo.source} target="_blank" rel="noreferrer">Image source ↗</a> : "Source image"} · Illustration; printed prices may be historical.</figcaption>
   </figure>;
 }

@@ -1,3 +1,7 @@
+import { RatingsContext, useMealRatings } from "./ratings.js";
+import CatalogBrands from "./components/CatalogBrands.jsx";
+import { usePreferences } from "./preferences.js";
+import { restaurantCategory, RESTAURANT_CATEGORIES } from "./restaurantCategories.js";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import CalorieMap from "./components/CalorieMap.jsx";
 import ChatPanel, { MealResults } from "./components/ChatPanel.jsx";
@@ -10,7 +14,7 @@ import MealSearch from "./components/MealSearch.jsx";
 import SettingsPage from "./components/SettingsPage.jsx";
 import HomePage from "./components/HomePage.jsx";
 import FavoritesPage from "./components/FavoritesPage.jsx";
-import BrandDirectory, { groupByBrand } from "./components/BrandDirectory.jsx";
+import BrandDirectory from "./components/BrandDirectory.jsx";
 import { useFavorites } from "./favorites.js";
 import MenuDataPage from "./components/MenuDataPage.jsx";
 import MealPlanPage from "./components/MealPlanPage.jsx";
@@ -23,11 +27,13 @@ const EMPTY = [];
 const formatRadius = meters => meters < 1000 ? `${meters} m` : `${meters / 1000} km`;
 const inPhilippines = ({ lat, lng }) => lat >= 4.5 && lat <= 21.5 && lng >= 116 && lng <= 127;
 
-let nextId = 1;
+const messageId = () => globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}`;
 
 export default function App() {
   const appearance = useTheme();
+  const [preferences, setPreference] = usePreferences();
   const mealPlan = useMealPlan();
+  const mealRatings = useMealRatings();
   const { favorites, isFavorite, toggleFavorite, storageUnavailable } = useFavorites();
   const [page, setPage] = useState(currentPage);
   const [config, setConfig] = useState(null);
@@ -35,6 +41,7 @@ export default function App() {
   const [configRetry, setConfigRetry] = useState(0);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [mapView, setMapView] = useState("map");
+  const effectiveMapView = preferences.mapsEnabled ? mapView : "list";
   const [formValues, setFormValues] = useState({ food: "", calories: "", protein: "", budget: "" });
   const [searchResponse, setSearchResponse] = useState(null);
   const [searchError, setSearchError] = useState(null);
@@ -90,7 +97,7 @@ export default function App() {
     chatRequest.current.abort();
     chatRequest.current = null;
     setBusy(false);
-    setMessages(m => [...m, { id: nextId++, role: "error", title: "Search area changed", text: "Search again to use your new location or radius." }]);
+    setMessages(m => [...m, { id: messageId(), role: "error", title: "Search area changed", text: "Search again to use your new location or radius." }]);
   }, []);
   useEffect(() => () => chatRequest.current?.abort(), []);
   const [focus, setFocus] = useState(null);
@@ -116,13 +123,17 @@ export default function App() {
     const t = setTimeout(() => setQuotaUntil(0), Math.max(0, quotaUntil - Date.now()));
     return () => clearTimeout(t);
   }, [quotaUntil]);
-  const [brandFilter, setBrandFilter] = useState("all");
+  const [restaurantQuery, setRestaurantQuery] = useState("");
+  const [category, setCategory] = useState("all");
+  const [sortOrder, setSortOrder] = useState("az");
   const catalogPins = useMemo(() => (mapData?.branches ?? EMPTY).filter(pin => pin.has_catalog_data || pin.has_calorie_data), [mapData]);
-  const brandGroups = useMemo(() => groupByBrand(catalogPins), [catalogPins]);
-  const pins = useMemo(() => brandFilter === "all" ? catalogPins : catalogPins.filter(pin => (pin.matched_brand_slug || pin.brand_name || "catalog") === brandFilter), [catalogPins, brandFilter]);
+  const pins = useMemo(() => catalogPins.filter(pin =>
+    (category === "all" || restaurantCategory(pin) === category)
+    && `${pin.brand_name} ${pin.poi_name}`.toLowerCase().includes(restaurantQuery.trim().toLowerCase())
+  ), [catalogPins, category, restaurantQuery]);
 
   useEffect(() => {
-    if (!searchViewport || page !== "nearby" || !config) return;
+    if ((!searchViewport && preferences.mapsEnabled) || page !== "nearby" || !config) return;
     const ctrl = new AbortController();
     clearTimeout(debounce.current);
     debounce.current = setTimeout(() => {
@@ -148,7 +159,7 @@ export default function App() {
       ctrl.abort();
       setMapBusy(false);
     };
-  }, [location, radiusKm, searchViewport, retry, page, config, provider]);
+  }, [location, radiusKm, searchViewport, retry, page, config, provider, preferences.mapsEnabled]);
 
   const moveTo = useCallback((ll) => {
     const next = { lat: ll.lat, lng: ll.lng };
@@ -161,7 +172,6 @@ export default function App() {
     setLastChat(null);
     setSearchResponse(null);
     setSearchStarted(false);
-    setBrandFilter("all");
     setMapData(null);
     setSearchViewport(viewport);
     setLocation(next);
@@ -174,7 +184,6 @@ export default function App() {
     setLastChat(null);
     setSearchResponse(null);
     setSearchStarted(false);
-    setBrandFilter("all");
     setMapData(null);
     setSearchViewport(viewport);
     setRadiusMeters(meters);
@@ -187,6 +196,7 @@ export default function App() {
   }
 
   function useMyLocation() {
+    if (!preferences.locationEnabled) return;
     if (!navigator.geolocation) {
       setGeoError("This browser can't share your location. Click the map to set it instead.");
       return;
@@ -208,7 +218,7 @@ export default function App() {
     const ctrl = new AbortController();
     const searchContext = { ...location, radiusKm, provider };
     chatRequest.current = ctrl;
-    setMessages((m) => [...m, { id: nextId++, role: "user", text }]);
+    setMessages((m) => [...m, { id: messageId(), role: "user", text }]);
     setBusy(true);
     try {
       const response = await chat({ provider, message: text, ...location, radiusKm, signal: ctrl.signal, filters });
@@ -216,7 +226,7 @@ export default function App() {
       setLastChat(response);
       setActiveGoals(response.inspector?.constraints ?? {});
       if (fromSearch) setSearchResponse(response);
-      setMessages((m) => [...m, { id: nextId++, role: "assistant", response, searchContext }]);
+      setMessages((m) => [...m, { id: messageId(), role: "assistant", response, searchContext }]);
       if (response.results[0]) setFocus({ lat: response.results[0].latitude, lng: response.results[0].longitude, t: Date.now() });
     } catch (e) {
       if (ctrl.signal.aborted) return;
@@ -225,7 +235,7 @@ export default function App() {
         : e.code === "rate_limited" ? "Too many searches"
         : e.code === "network" ? "Backend unreachable"
         : "Search failed";
-      setMessages((m) => [...m, { id: nextId++, role: "error", title, text: e.message }]);
+      setMessages((m) => [...m, { id: messageId(), role: "error", title, text: e.message }]);
       if (fromSearch) setSearchError(`${title}: ${e.message}`);
     } finally {
       if (chatRequest.current === ctrl) { chatRequest.current = null; setBusy(false); }
@@ -265,7 +275,7 @@ export default function App() {
     : mapData ? pins.length ? `${pins.length} catalog location${pins.length === 1 ? "" : "s"} nearby` : "No catalog locations found in this area" : "Choose an area to explore";
   const chatDiscoveryIssue = lastChat?.inspector?.discovery?.some(d => d.error || d.source === "disabled");
   return (
-    <MealPlanContext.Provider value={mealPlan}><div className="page-shell">
+    <RatingsContext.Provider value={mealRatings}><MealPlanContext.Provider value={mealPlan}><div className="page-shell">
       <SplashScreen />
       <a href="#page-content" className="skip-link" onClick={event => { event.preventDefault(); heading.current?.focus(); }}>Skip to content</a>
       <aside className="nav-rail">
@@ -285,6 +295,7 @@ export default function App() {
               <MealSearch savedValues={formValues} onValuesChange={setFormValues} busy={busy || !config} onSearch={(query, filters) => send(query, { fromSearch: true, filters })} />
               <a className="search-location-link" href="#/nearby"><Icon name="pin" size={17} />Choose your search area<Icon name="arrow" size={17} /></a>
             </section>
+            <CatalogBrands goals={activeGoals} />
             {searchStarted && <section ref={searchResultsRef} className="search-results" aria-label="Meal search results"><h2>Meal results</h2>
               {busy && <p role="status">Finding meals near your pin…</p>}
               {searchError && <p role="alert" className="page-alert">{searchError}</p>}
@@ -299,26 +310,32 @@ export default function App() {
                   onPointerDown={event => { draggingRadius.current = true; event.currentTarget.setPointerCapture(event.pointerId); }}
                   onChange={event => { const meters = event.currentTarget.valueAsNumber; setPreviewMeters(meters); if (!draggingRadius.current) applyRadius(meters); }}
                   onLostPointerCapture={finishRadiusDrag} onBlur={finishRadiusDrag} /><div className="range-limits"><span>100 m</span><span>5 km</span></div></div>
-              <button type="button" onClick={useMyLocation} className="location-button"><Icon name="compass" size={17} />Use my location</button>
+              <button type="button" onClick={useMyLocation} disabled={!preferences.locationEnabled} className="location-button"><Icon name="compass" size={17} />Use my location</button>
             </div>}
-            <div className="nearby-toolbar"><p role="status">{nearbyStatus}</p><label className="brand-filter">Brand<select aria-label="Restaurant brand" value={brandFilter} onChange={event => setBrandFilter(event.target.value)}><option value="all">All brands</option>{brandGroups.map(group => <option key={group.key} value={group.key}>{group.name}</option>)}</select></label><div className="nearby-actions">
+            <div className="nearby-search-tools">
+              <label className="field">Search restaurants<input type="search" placeholder="Restaurant or brand name" value={restaurantQuery} onChange={event => setRestaurantQuery(event.target.value)} /></label>
+              <label className="field">Category<select value={category} onChange={event => setCategory(event.target.value)}><option value="all">All categories</option>{RESTAURANT_CATEGORIES.map(value => <option key={value}>{value}</option>)}</select></label>
+              <label className="field">Sort<select value={sortOrder} onChange={event => setSortOrder(event.target.value)}><option value="az">A–Z</option><option value="za">Z–A</option><option value="nearest">Nearest first</option></select></label>
+            </div>
+            <div className="nearby-toolbar"><p role="status">{nearbyStatus}</p><div className="nearby-actions">
               {(viewport !== searchViewport || mapError || discoveryWarning) && <button type="button" disabled={quotaUntil > 0 || mapBusy} className="text-button" onClick={searchVisibleArea}><Icon name="search" size={16} />{viewport !== searchViewport ? "Search this area" : "Retry search"}</button>}
-              <div className="view-switch" role="group" aria-label="Nearby view">{["map", "list"].map(view => <button type="button" key={view} aria-pressed={mapView === view} onClick={() => setMapView(view)}>{view === "map" ? "Map" : "List"}</button>)}</div>
+              <div className="view-switch" role="group" aria-label="Nearby view">{["map", "list"].map(view => <button type="button" key={view} disabled={view === "map" && !preferences.mapsEnabled} aria-pressed={effectiveMapView === view} onClick={() => setMapView(view)}>{view === "map" ? "Map" : "List"}</button>)}</div>
             </div></div>
             {alertText && <div role="alert" className="page-alert"><Icon name="info" size={18} /><p>{alertText}</p><CloseButton label="Dismiss message" onClick={dismissAlert} /></div>}
-            <div className="nearby-map-shell" hidden={mapView !== "map"}><CalorieMap provider={provider} location={location} onMove={moveTo} onViewport={onViewport} radiusKm={previewMeters / 1000} pins={pins} results={lastChat?.results ?? EMPTY} focus={focus} theme={appearance.theme} goals={activeGoals} isFavorite={isFavorite} onToggleFavorite={toggleFavorite} />
+            {preferences.mapsEnabled && <div className="nearby-map-shell" hidden={effectiveMapView !== "map"}><CalorieMap provider={provider} location={location} onMove={moveTo} onViewport={onViewport} radiusKm={previewMeters / 1000} pins={pins} results={lastChat?.results ?? EMPTY} focus={focus} theme={appearance.theme} goals={activeGoals} isFavorite={isFavorite} onToggleFavorite={toggleFavorite} />
               <div className="map-key"><span><i className="legend-dot nutrition-dot" />Reviewed</span><span><i className="legend-dot other-dot" />Pending review</span><span><i className="legend-dot location-dot" />Your pin</span></div>
-            </div>
-            {mapView === "list" && <div className="nearby-list"><h2>Restaurants by brand</h2>{pins.length ? <BrandDirectory pins={pins} goals={activeGoals} isFavorite={isFavorite} onToggleFavorite={toggleFavorite} onLocate={pin => { locate(pin); setMapView("map"); }} /> : <p>{mapBusy ? "Finding nearby places…" : mapError || discoveryWarning ? "Restaurant listings are temporarily unavailable." : "No catalog locations in this area. Try a wider radius."}</p>}{provider === "google" && <p>Restaurant locations from Google Maps.</p>}</div>}
+            </div>}
+            {effectiveMapView === "list" && <div className="nearby-list"><h2>Restaurants by brand</h2>{pins.length ? <BrandDirectory key={`${restaurantQuery}-${category}-${sortOrder}`} sortOrder={sortOrder} pins={pins} goals={activeGoals} isFavorite={isFavorite} onToggleFavorite={toggleFavorite} onLocate={pin => { locate(pin); if (preferences.mapsEnabled) setMapView("map"); }} /> : <p>{mapBusy ? "Finding nearby places…" : mapError || discoveryWarning ? "Restaurant listings are temporarily unavailable." : "No catalog locations in this area. Try a wider radius."}</p>}{provider === "google" && <p>Restaurant locations from Google Maps.</p>}</div>}
             <p className="nearby-footnote">{provider === "osm" ? "OpenStreetMap locations · " : "Google Maps locations · "}Menus and source prices may vary by branch.</p>
           </section>}
-          {page === "chat" && <section className="chat-page"><div className="page-title-row"><div><h1 ref={heading} tabIndex={-1}>Meal chat</h1></div><button className="text-button" type="button" onClick={() => { setShowInspector(true); setInspectorOpen(true); }}>Retrieval details</button></div><p className="chat-page-context">Searching within {formatRadius(radiusMeters)} of your pin. <a href="#/nearby">Change area</a></p><div className="chat-page-panel">{chatDiscoveryIssue && <p className="chat-connection-note" role="status"><Icon name="info" size={17} />Restaurant search couldn’t connect. <a href="#/settings">Connection details</a></p>}<ChatPanel messages={messages} onSend={send} busy={busy || !config} onLocate={locate} searchContext={{ ...location, radiusKm, provider }} isFavorite={isFavorite} onToggleFavorite={toggleFavorite} /></div></section>}
+          {page === "chat" && <section className="chat-page"><div className="page-title-row"><div><h1 ref={heading} tabIndex={-1}>Meal chat</h1></div><button className="text-button" type="button" onClick={() => { setShowInspector(true); setInspectorOpen(true); }}>Retrieval details</button></div><p className="chat-page-context">Searching within {formatRadius(radiusMeters)} of your pin. <a href="#/nearby">Change area</a></p>{showInspector && <div className="inspector-layer"><RagInspector open={inspectorOpen} onToggle={() => setInspectorOpen(value => !value)} onClose={() => { setShowInspector(false); setInspectorOpen(false); }} chat={lastChat} map={mapData} /></div>}<div className="chat-page-panel">{chatDiscoveryIssue && <p className="chat-connection-note" role="status"><Icon name="info" size={17} />Restaurant search couldn’t connect. <a href="#/settings">Connection details</a></p>}<ChatPanel messages={messages} onSend={send} busy={busy || !config} onLocate={locate} searchContext={{ ...location, radiusKm, provider }} isFavorite={isFavorite} onToggleFavorite={toggleFavorite} /></div></section>}
           {page === "favorites" && <FavoritesPage headingRef={heading} favorites={favorites} provider={provider} onExplore={exploreFavorite} onToggle={toggleFavorite} storageUnavailable={storageUnavailable} goals={activeGoals} />}
-          {page === "settings" && <SettingsPage headingRef={heading} appearance={appearance} provider={provider} config={config} configError={configError} discoveryIssue={Boolean(mapData ? discoveryWarning || mapError : chatDiscoveryIssue || mapError)} onReconnect={() => setConfigRetry(n => n + 1)} browserKeyConfigured={Boolean(browserMapsKey)} />}
+          {page === "settings" && <SettingsPage headingRef={heading} appearance={appearance} provider={provider} config={config} configError={configError} discoveryIssue={Boolean(mapData ? discoveryWarning || mapError : chatDiscoveryIssue || mapError)} onReconnect={() => setConfigRetry(n => n + 1)} browserKeyConfigured={Boolean(browserMapsKey)} preferences={preferences} onPreference={setPreference} />}
+
 
         </main>
       </div>
-      {showInspector && <div className="inspector-layer"><RagInspector open={inspectorOpen} onToggle={() => setInspectorOpen(value => !value)} onClose={() => { setShowInspector(false); setInspectorOpen(false); }} chat={lastChat} map={mapData} /></div>}
-    </div></MealPlanContext.Provider>
+
+    </div></MealPlanContext.Provider></RatingsContext.Provider>
   );
 }

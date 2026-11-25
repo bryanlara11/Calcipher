@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
+from uuid import UUID
 from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -55,9 +56,14 @@ class ChatRequest(BaseModel):
 
 
 class SourceEvidence(BaseModel):
+    rating_updated_at: datetime | None = None
+    rating_average: float | None = None
+    rating_count: int = 0
+    community_pick: bool = False
     source_classification: Literal["official", "community_reported", "estimated", "unknown"] = "unknown"
     collected_at: date | None = None
     secondary_source_url: str | None = None
+    nutrition_source_url: str | None = None
 
 
 class RetrievedItem(SourceEvidence):
@@ -190,3 +196,9 @@ class ErrorResponse(BaseModel):
     detail: str
     code: str
     request_id: str | None = None
+
+
+class MealRatingRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    voter_id: UUID
+    score: int = Field(ge=1, le=5, strict=True)

@@ -331,8 +331,7 @@ not an account or cloud backup. Settings contains appearance, map connection and
 Use **Settings → Appearance** for Light, Dark or System. Preference is saved under
 `calcipher.theme`; System responds to OS changes. Storage failure falls back to the current visit.
 The mobile bottom navigation and responsive panels support phone, tablet and laptop breakpoints.
-Pending records never acquire an approval seal: a reviewed record must also meet the selected
-calorie/protein goals before displaying the Healthy badge.
+The supplied seal now represents a Community pick: at least three healthy-choice ratings averaging four stars or higher. Rating status is separate from source review; no sample votes are seeded. Settings also lets users turn map display and device-location requests off. Meal Plan supports a daily calorie target, progress and weekly dates; Month is Coming soon.
 
 Frontend verification uses Node 22 LTS. npm 10 encountered an optional-peer resolver error with
 current test tooling during setup; the verified toolchain uses npm 11 without a global install:

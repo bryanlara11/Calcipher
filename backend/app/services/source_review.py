@@ -37,6 +37,8 @@ def validate_provenance(metadata: dict, verified: bool) -> list[str]:
         errors.append("field_sources must map fields to HTTP(S) source URLs")
     if metadata.get("secondary_source_url") and not _http(metadata["secondary_source_url"]):
         errors.append("secondary_source_url must be HTTP(S)")
+    if metadata.get("nutrition_source_url") and not _http(metadata["nutrition_source_url"]):
+        errors.append("nutrition_source_url must be HTTP(S)")
     if verified and metadata.get("record_id"):
         approval = metadata.get("approval", {})
         if not isinstance(approval, dict) or not approval.get("reviewed_by") or not approval.get("reference"):
@@ -80,7 +82,7 @@ def prepare_review(candidates_path: Path, output: Path, receipt_path: Path | Non
         record_id = candidate["record_id"]
         metadata = {key: candidate.get(key) for key in (
             "record_id", "source_classification", "collected_at", "permission_reference",
-            "secondary_source_url", "field_sources", "snapshot_sha256", "notes", "source_account")}
+            "secondary_source_url", "field_sources", "snapshot_sha256", "notes", "source_account", "brand_origin", "nutrition_source_url")}
         metadata["collection_method"] = "authorized_source_transcription"
         if record_id in approved:
             metadata["approval"] = {

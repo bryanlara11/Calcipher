@@ -7,7 +7,7 @@ const SOURCE_TEXT = {
 
 function Row({ k, children }) {
   return (
-    <div className="flex justify-between gap-4 border-t border-slate-line py-1 first:border-t-0">
+    <div className="inspector-row">
       <dt className="text-slate-mute">{k}</dt>
       <dd className="num text-right font-semibold">{children}</dd>
     </div>
@@ -62,9 +62,7 @@ export default function RagInspector({ open, onToggle, onClose, chat, map }) {
   const c = insp?.constraints;
   return (
     <aside
-      className={`absolute inset-x-0 bottom-0 z-[1000] border-t-2 border-ink bg-label transition-transform duration-300 ${
-        open ? "translate-y-0" : "translate-y-[calc(100%-2.75rem)]"
-      }`}
+      className="retrieval-inspector"
       aria-label="Retrieval inspector"
     >
       <div className="flex h-11 items-center pr-2">
@@ -93,8 +91,8 @@ export default function RagInspector({ open, onToggle, onClose, chat, map }) {
         )}
       </div>
 
-      <div hidden={!open} className="grid max-h-[26vh] gap-5 lg:max-h-[45vh] overflow-y-auto px-4 pb-4 sm:grid-cols-2 lg:grid-cols-3">
-        {map && <Discovery d={map.discovery} title={`Map layer (${map.matched_count} with data, ${map.unmatched_count} without)`} />}
+      <div hidden={!open} className="inspector-content">
+        {map && <Discovery d={map.discovery} title={`Map layer (${map.matched_count} reviewed-data pins, ${map.unmatched_count} other pins)`} />}
 
         {insp ? (
           <>

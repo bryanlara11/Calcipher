@@ -18,6 +18,7 @@ from sqlalchemy import (
     CheckConstraint,
     DateTime,
     Double,
+    ForeignKey,
     Identity,
     Index,
     Integer,
@@ -138,3 +139,12 @@ class OverpassFetchLog(Base):
         CheckConstraint("radius_m > 0", name="ck_fetch_log_radius_pos"),
         CheckConstraint("element_count >= 0", name="ck_fetch_log_count_nonneg"),
     )
+
+
+class MealRating(Base):
+    __tablename__ = "meal_ratings"
+    item_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("nutrition_catalog.id", ondelete="CASCADE"), primary_key=True)
+    voter_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    score: Mapped[int] = mapped_column(Integer, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    __table_args__ = (CheckConstraint("score BETWEEN 1 AND 5", name="ck_meal_rating_score"),)

@@ -24,6 +24,7 @@ from app.schemas import (
     ChatRequest,
     ChatResponse,
     MapItemsResponse,
+    MealRatingRequest,
 )
 from app.db.maintenance import count_stale_embeddings
 from app.security import MacroPhysicsError, SlidingWindowRateLimiter
@@ -34,11 +35,12 @@ from app.services.hybrid_rag import HybridRagService, brand_items
 from app.services.llm import GeminiClient, LLMClient
 from app.services.google_places import GooglePlacesDiscovery, PlacesQuotaLimited, PlacesUnavailable
 from app.services.query_parser import QueryParser
+from app.services.meal_ratings import attach_ratings, save_rating
 from app.services.overpass_client import BranchDiscoveryService, OverpassClient
 
 logger = logging.getLogger("calcipher")
 
-RATE_LIMITED_PREFIXES = ("/api/v1/chat", "/api/v1/map-items", "/api/v1/brands")
+RATE_LIMITED_PREFIXES = ("/api/v1/chat", "/api/v1/map-items", "/api/v1/brands", "/api/v1/meal-ratings")
 
 
 def build_rag_service(settings: Settings, brands: BrandRegistry, provider: str = "google") -> HybridRagService:
@@ -229,9 +231,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         """))).mappings().one()
         return dict(row)
 
+    @app.get("/api/v1/catalog-brands")
+    async def catalog_brands(session: SessionDep) -> dict:
+        rows = (await session.execute(text("""
+            SELECT brand_slug, min(brand_name) AS brand_name, count(*) AS records,
+                   count(*) FILTER (WHERE is_verified) AS reviewed,
+                   count(*) FILTER (WHERE NOT is_verified) AS pending
+            FROM nutrition_catalog WHERE is_active GROUP BY brand_slug ORDER BY lower(min(brand_name))
+        """))).mappings().all()
+        return {"brands": [dict(row) for row in rows]}
+
     @app.post("/api/v1/chat", response_model=ChatResponse)
     async def chat(body: ChatRequest, request: Request, session: SessionDep, rag: RagDep) -> ChatResponse:
-        return await rag.chat(
+        result = await rag.chat(
             session,
             message=body.message,
             lat=body.lat,
@@ -240,6 +252,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             filters=body.filters,
             request_id=request.state.request_id,
         )
+
+        await attach_ratings(session, result.results + result.catalog_matches)
+        return result
+
+    @app.post("/api/v1/meal-ratings/{item_id}")
+    async def rate_meal(item_id: uuid.UUID, body: MealRatingRequest, session: SessionDep) -> dict:
+        summary = await save_rating(session, item_id, body.voter_id, body.score)
+        if summary is None:
+            raise HTTPException(404, "Meal is not in the active catalog")
+        return summary
 
     @app.get("/api/v1/map-items", response_model=MapItemsResponse)
     async def map_items(
@@ -276,7 +298,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         include_pending: bool = False,
     ) -> BrandItemsResponse:
         slug = normalize_brand(brand_slug)
-        return BrandItemsResponse(brand_slug=slug, items=await brand_items(session, slug, include_pending=include_pending))
+        return BrandItemsResponse(brand_slug=slug, items=await attach_ratings(session, await brand_items(session, slug, include_pending=include_pending)))
 
     return app
 

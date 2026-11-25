@@ -6,33 +6,40 @@ an Instagram session. The application must never treat an extraction as human ap
 
 ## Current source scope (2026-11-25)
 
-The selected nutrition source is **@anongcaloriesnito only**. The collector requires an original
-Instagram post link and visible credit to that account. Source-linked secondary transcriptions
-retain both URLs and snapshot hashes; their values still require personal source review.
+Brands must originate from **@anongcaloriesnito**. The user subsequently authorized manual
+internet research for nutrition and images after selecting brands from Instagram. Keep brand
+origin and nutrient evidence separate: `source_post_url` identifies the Instagram origin and
+`nutrition_source_url` identifies an external calorie source when used. Both are visible in cards.
+Do not represent a secondary transcription as an official source or as personal source approval.
 
-There are 97 active pending records across 17 brands. Six KFC records from a separate official
-corporate table are archived in the existing database and excluded from menus, maps and retrieval.
-The earlier 36/60-record exports are historical and do not define the current active catalog.
-No approval flags were changed. Current active completeness: 97 calorie values, three protein
-values, zero carbohydrate/fat values and zero checked current PHP prices.
+Current scope: 121 active pending records across 21 brands; six separate-source KFC rows remain
+archived. Latest addition: 24 records across Crisostomo, CoCo Ichibanya, Dot Coffee and Conti's.
+All four brands' posts were directly inspected on the selected public account. The official
+Crisostomo PDF was rendered and labels checked against each retained item; only eight clear
+records were kept. Other new values come from explicit Calorie Tsek Philippine item/variant
+pages and are community-reported. Japan's CoCo nutrition figures were not used for PH dishes.
+Dot snack summaries disagreed and were excluded. Conti's calories are per piece, even where a
+source displays the price of a box. No current prices were imported.
 
-The operator attested permission covering collection methods and facts/media reuse. This is an
-operator attestation, not an independently inspected owner permission document, and does not
-constitute nutrition review. No specific approved record IDs have been supplied.
+Known active fields: 121 calories, 11 protein, 8 carbs, 8 fat. There are 8 official-source and 113
+community-reported rows, zero human-approved rows and zero checked current PHP prices. Missing
+portion sizes remain unknown; do not divide menu-dish totals into assumed person servings.
 
-One bounded Instaloader attempt failed with `BadResponseException: Fetching Post metadata failed`.
-Python Instagram retrieval remains unproven. Normal public-browser inspection covered five
-original posts: a complete 7-Eleven eight-slide carousel, partial Army Navy, Mary Grace,
-Tim Ho Wan and Good Habits Cafe. Do not claim every original post was inspected. The Tim Ho Wan
-food illustration is a screenshot of a displayed source slide; other labelled covers use downloaded
-source media. Historical photographed prices were not imported as current prices.
+The scope audit supports both older credit-linked HTML snapshots and new paired evidence:
+retained nutrition snapshot plus a matching browser-observed Instagram brand origin. It checks
+hash integrity, source account, brand and post identity, then rematches real branches. The new
+metadata is evidence of brand discovery, not nutrition approval. Include every original batch
+when running the audit, since rows absent from allowed evidence become inactive. Use local
+original batches; published JSON omits machine-specific snapshot paths.
 
-The distributable pending facts are in `data/catalog/anongcaloriesnito.pending.json`, with no
-credentials, raw snapshots, private receipts or approvals. See that folder's README for loading.
-`app.services.source_scope` checks original candidate files against retained snapshot hashes and
-visible credit; `--apply` updates active/archive status and rematches branches without deleting
-rows or changing approval. Re-run the audit after any legacy/manual import. Distributable JSON
-omits machine-specific snapshot paths; use the original local collection batches for this audit.
+Nine original Instagram posts have been inspected across the project, including the four new
+brand origins. Not every original slide/item was inspected. The bounded Instaloader attempt
+still failed; anonymous Python Instagram retrieval remains unproven. No specific human-approved
+IDs have been supplied. Previous exports and hashes are historical versions.
+
+See `data/catalog/README.md` for the expanded dataset hash, evidence and import commands.
+Raw source/permission evidence remains local. Public external images have attribution links;
+public visibility is not represented as an open-content license.
 
 ## Choose an authorized method
 

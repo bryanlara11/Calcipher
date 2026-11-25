@@ -10,13 +10,13 @@ export default function HomePage({ headingRef }) {
     </section>
     <section className="how-it-works" aria-labelledby="how-heading"><h2 id="how-heading">How it works</h2>
       <ol className="how-grid">
-        <li><Icon name="pin" size={26} /><h3>Choose your area</h3><p>Move the map pin or use your location. Nearby shows branches linked to our menu database.</p></li>
-        <li><Icon name="filter" size={26} /><h3>Set your goals</h3><p>Search for a dish or restaurant. Add calorie, protein or budget limits when you need them.</p></li>
-        <li><Icon name="heart" size={26} /><h3>Compare and save</h3><p>Check the source, open the branch on the map and favorite restaurants for later.</p></li>
+        <li><h3>Pick a place</h3><p>Use the map to see restaurants around you.</p></li>
+        <li><h3>Look through the menu</h3><p>Search for food and check its calories and source.</p></li>
+        <li><h3>Save your next meal</h3><p>Keep a favorite restaurant or add a dish to your plan.</p></li>
       </ol>
     </section>
-    <section className="home-data-note"><img src="/brand/approved-seal.webp" alt="Example CalCipher Approved seal" width="120" height="90" />
-      <div><h2>A badge based on your goals</h2><p>A reviewed meal earns the Healthy badge when it meets your selected nutrition goals. Pending matches use a text label until their source values are reviewed.</p></div>
+    <section className="home-data-note"><img src="/brand/approved-seal.webp" alt="Example CalCipher community pick seal" width="120" height="90" />
+      <div><h2>What the badge means</h2><p>A Community pick has at least three healthy-choice ratings averaging four stars or higher. It reflects people’s opinions; the nutrition source has its own review status. Meals without enough ratings have no badge.</p></div>
     </section>
     <section className="home-data-link"><div><h2>About menu data</h2><p>See what is in the catalog, how records are reviewed and where nutrition values come from.</p></div><a href="#/data" className="button-secondary">Read about the data<Icon name="arrow" size={17} /></a></section>
   </div>;

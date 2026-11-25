@@ -13,7 +13,7 @@ import { BranchPopup } from "../src/components/MapPopup.jsx";
 import GoalBadge, { matchesNutritionGoals } from "../src/components/GoalBadge.jsx";
 import { FAVORITES_KEY } from "../src/favorites.js";
 import { PLAN_KEY, nutritionTotals } from "../src/mealPlan.js";
-import { groupByBrand } from "../src/components/BrandDirectory.jsx";
+import BrandDirectory, { groupByBrand } from "../src/components/BrandDirectory.jsx";
 
 vi.mock("../src/components/CalorieMap.jsx", () => ({ default: ({ onViewport, onMove }) => <div role="region" aria-label="Map renderer test stub"><button type="button" onClick={() => onViewport("14.57,14.59,120.97,120.99")}>Report test viewport</button><button type="button" onClick={() => onViewport("14.58,14.60,120.98,121.00")}>Pan test viewport</button><button type="button" onClick={() => onMove({ lat: 14.59, lng: 120.99 })}>Move test pin</button></div> }));
 const response = body => ({ ok: true, json: async () => body });
@@ -141,6 +141,7 @@ describe("meal search and cards", () => {
     expect(screen.getByText("Synthetic test bowl")).toBeTruthy();
     expect(screen.getByText("Pending review; source values are not approved.")).toBeTruthy();
     expect(screen.queryByLabelText("Map pin 1")).toBeNull();
+    await userEvent.click(screen.getByText("UI test fixture", { selector: "summary strong" }));
     expect(screen.getByRole("link", { name: /^Nutrition source/ }).getAttribute("href")).toBe("https://example.test/source");
     await userEvent.click(screen.getByRole("button", { name: "Synthetic test branch" }));
     expect(screen.getByRole("heading", { name: "Nearby restaurants" })).toBeTruthy();
@@ -173,7 +174,7 @@ describe("meal search and cards", () => {
     render(<App />);
     await userEvent.type(screen.getByPlaceholderText(/Chicken, noodles/), "rice");
     await userEvent.click(screen.getByRole("link", { name: "Settings" }));
-    expect(screen.getByText("OpenStreetMap · no key needed")).toBeTruthy();
+    expect(screen.getByRole("checkbox", { name: "Show maps" }).checked).toBe(true);
     expect(screen.queryByPlaceholderText(/Chicken, noodles/)).toBeNull();
     act(() => { window.location.hash = "/search"; window.dispatchEvent(new HashChangeEvent("hashchange")); });
     expect(screen.getByPlaceholderText(/Chicken, noodles/).value).toBe("rice");
@@ -193,10 +194,10 @@ describe("meal search and cards", () => {
     window.history.replaceState(null, "", "/#/settings");
     fetch.mockRejectedValueOnce(new TypeError("offline"));
     render(<App />);
-    await screen.findByText("API connection unavailable");
-    await userEvent.click(screen.getByRole("button", { name: "Reconnect to API" }));
-    await screen.findByText("Map enabled");
-    expect(screen.queryByText("API connection unavailable")).toBeNull();
+    await screen.findByText(/OpenStreetMap · Connection unavailable/);
+    await userEvent.click(screen.getByRole("button", { name: "Reconnect" }));
+    await screen.findByText(/OpenStreetMap · Connected/);
+    expect(screen.queryByText(/OpenStreetMap · Connection unavailable/)).toBeNull();
     await userEvent.selectOptions(screen.getByRole("combobox", { name: "Appearance" }), "dark");
     expect(document.documentElement.dataset.theme).toBe("dark");
   });
@@ -291,9 +292,10 @@ describe("map identities", () => {
       source_post_url: "https://example.test/pending", serving_size: null, source_classification: "community_reported" }] }));
     render(<BranchPopup pin={{ poi_name: "Synthetic pending", distance_km: .2, has_catalog_data: true,
       has_calorie_data: false, matched_brand_slug: "synthetic", brand_name: "Synthetic", catalog_item_count: 1, pending_item_count: 1, item_count: 0 }} />);
+    await userEvent.click(screen.getByRole("button", { name: "View menu" }));
     await screen.findByRole("link", { name: /^Nutrition source/ });
     expect(fetch.mock.calls[0][0]).toContain("include_pending=true");
-    expect(screen.getByText(/Pending values are not used in meal recommendations/)).toBeTruthy();
+    expect(screen.getByText("1 pending source review")).toBeTruthy();
     expect(screen.getByText("Serving size unavailable")).toBeTruthy();
     expect(screen.getByText("Pending review")).toBeTruthy();
     expect(screen.queryByText(/Checked against source/)).toBeNull();
@@ -309,6 +311,7 @@ describe("map identities", () => {
       source_post_url: "https://example.test/original" }] }));
     render(<BranchPopup pin={{ poi_name: "Synthetic branch", distance_km: .2, has_calorie_data: true,
       matched_brand_slug: "synthetic", brand_name: "Synthetic", item_count: 1, min_calories: 400 }} />);
+    await userEvent.click(screen.getByRole("button", { name: "View menu" }));
     const source = await screen.findByRole("link", { name: /^Nutrition source/ });
     expect(source.getAttribute("href")).toBe("https://example.test/original");
     expect(screen.getByText(/Community-reported nutrition/)).toBeTruthy();
@@ -356,7 +359,7 @@ describe("home, goals and saved restaurants", () => {
     expect(window.location.hash).toBe("#/search");
     const submitted = fetch.mock.calls.find(([url]) => url.endsWith("/chat"));
     expect(JSON.parse(submitted[1].body).filters).toEqual({ max_calories: 500 });
-    expect(screen.getByText("Matches your goals · Pending review")).toBeTruthy();
+    expect(screen.queryByAltText("CalCipher community pick seal")).toBeNull();
     await userEvent.click(screen.getByRole("link", { name: "Chat" }));
     expect(screen.getByText("Synthetic meal search response")).toBeTruthy();
   });
@@ -367,6 +370,7 @@ describe("home, goals and saved restaurants", () => {
     await screen.findByText("2 catalog locations nearby");
     await userEvent.click(screen.getByRole("button", { name: "List", exact: true }));
     await userEvent.click(screen.getByRole("button", { name: "Add Synthetic saved branch to favorites" }));
+    await userEvent.click(screen.getByText("View 1 more branch"));
     await userEvent.click(screen.getByRole("button", { name: "Add Synthetic second branch to favorites" }));
     expect(JSON.parse(localStorage.getItem(FAVORITES_KEY))).toHaveLength(2);
     await userEvent.click(screen.getByRole("link", { name: "Favorites" }));
@@ -398,15 +402,15 @@ describe("home, goals and saved restaurants", () => {
     expect(matchesNutritionGoals({ ...sample, protein_g: null }, { min_protein_g: 20 })).toBe(false);
     expect(matchesNutritionGoals(sample, { max_calories: 300 })).toBe(false);
   });
-  it("uses the Approved seal only for reviewed meals matching the selected goals", () => {
-    const view = render(<GoalBadge item={sample} goals={{ max_calories: 500 }} />);
-    expect(screen.queryByAltText("CalCipher Approved seal")).toBeNull();
-    expect(screen.getByText("Matches your goals · Pending review")).toBeTruthy();
-    view.rerender(<GoalBadge item={{ ...sample, is_verified: true }} goals={{ max_calories: 500 }} />);
-    expect(screen.getByAltText("CalCipher Approved seal")).toBeTruthy();
-    expect(screen.getByText("Healthy match")).toBeTruthy();
-    view.rerender(<GoalBadge item={{ ...sample, is_verified: true }} goals={{ max_calories: 300 }} />);
-    expect(screen.queryByAltText("CalCipher Approved seal")).toBeNull();
+  it("awards the badge only from enough real community rating data", () => {
+    const view = render(<GoalBadge item={sample} />);
+    expect(screen.queryByAltText("CalCipher community pick seal")).toBeNull();
+    view.rerender(<GoalBadge item={{ ...sample, rating_count: 3, rating_average: 4.5, community_pick: true }} />);
+    expect(screen.getByAltText("CalCipher community pick seal")).toBeTruthy();
+    expect(screen.getByText("Community pick")).toBeTruthy();
+    expect(screen.getByText(/Nutrition pending review/)).toBeTruthy();
+    view.rerender(<GoalBadge item={{ ...sample, rating_count: 1, rating_average: 5, community_pick: false }} />);
+    expect(screen.queryByAltText("CalCipher community pick seal")).toBeNull();
   });
   it("groups nearby branches by brand and keeps the closest branch first", () => {
     const groups = groupByBrand([
@@ -435,12 +439,13 @@ describe("home, goals and saved restaurants", () => {
     await waitFor(() => expect(screen.getByRole("button", { name: "Find a meal" }).disabled).toBe(false));
     await userEvent.click(screen.getByRole("button", { name: "Find a meal" }));
     await screen.findByText("Synthetic test bowl");
+    await userEvent.click(screen.getByText("UI test fixture", { selector: "summary strong" }));
     await userEvent.click(screen.getByText("Add to meal plan"));
     await userEvent.click(screen.getByRole("button", { name: "Save meal" }));
     await userEvent.click(screen.getByRole("link", { name: "Meal plan", exact: true }));
     expect(screen.getByRole("heading", { name: "Synthetic test bowl" })).toBeTruthy();
-    expect(screen.getByText(/1 planned meal is pending source review/)).toBeTruthy();
-    expect(screen.getByText("1 meal has no carbs value")).toBeTruthy();
+    expect(screen.getByText(/Pending review ·/)).toBeTruthy();
+    expect(screen.getByText("1 meal is missing carbs")).toBeTruthy();
     expect(JSON.parse(localStorage.getItem(PLAN_KEY))).toHaveLength(1);
     view.unmount(); render(<App />);
     expect(screen.getByRole("heading", { name: "Synthetic test bowl" })).toBeTruthy();
@@ -469,4 +474,64 @@ describe("theme contrast", () => {
       expect(ratio(hex("control-line"), rgb("canvas"))).toBeGreaterThanOrEqual(3);
     });
   }
+});
+
+it("separates external nutrition evidence from the Instagram brand origin", () => {
+  render(<NutritionPanel item={{ ...sample, source_post_url: "https://www.instagram.com/p/synthetic/",
+    nutrition_source_url: "https://example.org/official-menu.pdf", secondary_source_url: "https://example.org/official-menu.pdf" }}
+    index={1} onLocate={vi.fn()} />);
+  expect(screen.getByRole("link", { name: "Nutrition source" }).getAttribute("href")).toBe("https://example.org/official-menu.pdf");
+  expect(screen.getByRole("link", { name: "Instagram brand post" }).getAttribute("href")).toBe("https://www.instagram.com/p/synthetic/");
+  expect(screen.queryByRole("link", { name: "Collection source" })).toBeNull();
+});
+
+it("stores the daily target and provides a seven-day calendar with month marked coming soon", async () => {
+  window.history.replaceState(null,"","/#/plan"); const view = render(<App />);
+  const day = screen.getByLabelText("Meal plan date").value;
+  await userEvent.type(screen.getByLabelText("Daily calorie target"),"1900");
+  expect(screen.getByRole("progressbar",{name:"Daily calorie progress"}).getAttribute("max")).toBe("1900");
+  expect(JSON.parse(localStorage.getItem("calcipher.planTargets.v1"))[day]).toBe(1900);
+  await userEvent.click(screen.getByRole("button",{name:"Week",exact:true}));
+  expect(screen.getAllByRole("button",{name:/: 0 meals$/})).toHaveLength(7);
+  expect(screen.getByRole("button",{name:/Month/}).disabled).toBe(true);
+  view.unmount(); render(<App />);
+  expect(screen.getByLabelText("Daily calorie target").value).toBe("1900");
+});
+
+it("lets users disable map display and location requests while keeping restaurant lists", async () => {
+  window.history.replaceState(null,"","/#/settings"); render(<App />);
+  await userEvent.click(screen.getByRole("checkbox",{name:"Show maps"}));
+  await userEvent.click(screen.getByRole("checkbox",{name:"Allow location requests"}));
+  await userEvent.click(screen.getByRole("link",{name:"Nearby",exact:true}));
+  expect(screen.queryByRole("region",{name:"Map renderer test stub"})).toBeNull();
+  expect(screen.getByRole("button",{name:"Map",exact:true}).disabled).toBe(true);
+  await userEvent.click(screen.getByRole("button",{name:"Area & filters"}));
+  expect(screen.getByRole("button",{name:"Use my location"}).disabled).toBe(true);
+});
+
+it("shows three alphabetically sorted restaurant brands first and expands the rest", async () => {
+  const pins = ["Zeta", "Alpha", "Delta", "Beta"].map((name,index)=>({osm_type:"node",osm_id:index+100,brand_name:name,poi_name:name,matched_brand_slug:name.toLowerCase(),latitude:14.58,longitude:120.98,distance_km:1,catalog_item_count:1,pending_item_count:1}));
+  render(<BrandDirectory pins={pins} isFavorite={()=>false} onToggleFavorite={vi.fn()} onLocate={vi.fn()} />);
+  expect(screen.getAllByRole("heading",{level:3}).map(h=>h.textContent)).toEqual(["Alpha","Beta","Delta"]);
+  expect(screen.queryByRole("heading",{name:"Zeta"})).toBeNull();
+  await userEvent.click(screen.getByRole("button",{name:/Show more restaurants/}));
+  expect(screen.getByRole("heading",{name:"Zeta"})).toBeTruthy();
+});
+
+it("submits a genuine rating action and does not create a badge from one vote", async () => {
+  fetch.mockImplementation(async url => response(url.includes("map-config") ? {provider:"osm"}
+    : url.includes("meal-ratings") ? {rating_count:1,rating_average:5,community_pick:false}
+    : {results:[],catalog_matches:[sample],answer:"One source menu",relaxation:{applied:false},inspector:{generator_used:"template"}}));
+  render(<App />);
+  await waitFor(()=>expect(screen.getByRole("button",{name:"Find a meal"}).disabled).toBe(false));
+  await userEvent.click(screen.getByRole("button",{name:"Find a meal"}));
+  await screen.findByText("One source menu");
+  await userEvent.click(screen.getByText("UI test fixture",{selector:"summary strong"}));
+  await userEvent.click(screen.getByText("Rate as a healthy choice"));
+  await userEvent.click(screen.getByRole("button",{name:"5 stars"}));
+  await screen.findByText("5.0/5 · 1 community rating");
+  const request = fetch.mock.calls.find(([url])=>url.includes("meal-ratings"));
+  expect(JSON.parse(request[1].body).score).toBe(5);
+  expect(JSON.parse(request[1].body).voter_id).toMatch(/^[0-9a-f-]{36}$/i);
+  expect(screen.queryByAltText("CalCipher community pick seal")).toBeNull();
 });

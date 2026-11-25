@@ -1,111 +1,97 @@
-# CalCipher implementation handoff — 2026-11-25
+# CalCipher handoff — 2026-11-25
 
-## Scope and branch
+Continue on `dpsahagon/instagram-ingestion-fix` in `bryanlara11/Calcipher`. Main is unchanged.
+Use Python 3.12, the backend virtual environment, Node 22 LTS and npm 11.21.3. Preserve `.env`.
+Setup and operational commands are in `README.md` and `docs/OPERATIONS.md`.
 
-Continue on `dpsahagon/instagram-ingestion-fix` in `bryanlara11/Calcipher`. Main has not been merged.
-Preserve existing work. Use Python 3.12, the backend virtual environment and Node 22 LTS with
-npm 11.21.3. Follow `README.md` and `docs/OPERATIONS.md`; preserve existing `.env` credentials.
-No private database, session, `.env`, raw collection cache or permission receipt belongs in Git.
+## Current product behavior
 
-## Product behavior implemented
+Home has a short, plain guide. About menu data is linked only from Home. Search finds meals and
+also offers a collapsed all-brand menu browser. Nearby is for real branch locations: search by
+restaurant/brand name, filter category and sort A–Z, Z–A or by distance. The list initially shows
+three brand cards with one nearest branch each; Show more reveals three more. Map popups begin with the restaurant name,
+distance and a View menu button. Menus expand inside a bounded popup, with resize handling and
+theme styles that outrank Leaflet's late-loaded white defaults. Map errors have a local fallback.
 
-- Home explains the workflow. About menu data is a separate page linked only from Home.
-- Search finds menu items by dish/brand and optional calorie, protein or budget limits. Results
-  stay on Search. Structured fields override conflicting numbers in query text.
-- Nearby displays actual branches linked to active catalog brands, groups them by brand and
-  offers a brand filter. Two nearest branches appear first; remaining locations and menus expand
-  on demand. Brand photos are labelled and do not imply every branch is pictured.
-- Meal Chat uses the same pin, radius and provider as Nearby. Earlier replies show when their
-  area is stale. Pending previews are separate from reviewed recommendations.
-- Favorites saves restaurants in this browser/device (`calcipher.favorites.v1`). Meal Plan saves
-  dated Breakfast/Lunch/Dinner/Snack selections (`calcipher.mealPlan.v1`), removes entries and
-  totals known nutrients with missing values explicitly reported. Neither feature is cloud sync.
-- Settings contains theme, map connection and privacy. It does not duplicate menu-data content.
-- Phone/tablet/laptop breakpoints, accessible controls and mobile bottom navigation are present.
-  A live 390×844 Home screenshot showed no horizontal overflow. Final iPad/laptop visual and
-  planner/favorite interaction checks were limited by intermittent browser automation timeouts;
-  automated route, persistence and structural accessibility checks passed.
-- The latest supplied avocado logo is used throughout, including icons. Both themes use #5B8219
-  accents. Light uses white surfaces without yellow UI accents. Dark uses black, shaded panels,
-  white headings and gray text. Maps keep natural provider colors.
-- The supplied Approved seal is used only for reviewed meals meeting selected calorie/protein
-  goals. Pending matches have a text label. No goals means no Healthy badge.
-- Source menu/food photographs are attributed. Tim Ho Wan pork buns use a screenshot of a
-  displayed original slide. Printed prices may be historical and are never treated as current.
+Meal Chat and meal Search show restaurant names first, with details collapsed until expanded.
+Explicit food terms are filtered before vector ranking; banana no longer returns unrelated food.
+A food absent from the active catalog returns a clear no-match reply before location discovery.
+Exact pending matches are shown before widening a search for reviewed recommendations.
+Calories, protein, budget and distance limits remain hard constraints. Missing values stay null.
+Retrieval details expand in the Chat page's normal flow and scroll within their own panel.
 
-## Source and data boundary
+Settings has appearance, interactive-map and device-location controls, connection status and a
+plain explanation of stored data. Turning maps off unmounts the renderer and uses restaurant
+lists. Disabling location requests disables the location button. Browser permission is still
+required when the user explicitly requests location. Map/location preferences persist locally.
 
-The only active nutrition account is **@anongcaloriesnito**. Source-linked secondary
-transcriptions preserve the original Instagram URL and exact credit evidence. Current persistent
-DB: 103 total rows, 97 active pending rows across 17 brands, six other-source KFC rows archived,
-zero reviewed. Archive changes preserve source evidence and approval state. Query parsing can
-recognize an archived brand to avoid substituting unrelated brands; retrieval, menus, summary
-counts and branch matching exclude inactive records.
+Meal Plan supports daily and weekly views, a date picker, user-entered daily calorie targets,
+progress and known macro totals. Week navigation shows seven selectable dates. Month is disabled
+and labelled Coming soon. No calorie target is prescribed automatically. Favorites, plans and
+targets remain browser-local. Existing user-saved meals were preserved during verification.
 
-Active brands: 7-Eleven, Army Navy, Chowking, Mang Inasal, McDonald's, Jollibee, Burger King,
-Popeyes, World Chicken, Greenwich, Pizza Hut, Shakey's, Wendy's, Mary Grace, Tim Ho Wan,
-Marugame Udon and Good Habits Cafe. These are brands; they are not 17 individually verified
-branch menus. Nutrition and mapped branches are joined by brand, with availability caveats.
+## Community badge — latest user decision
 
-Active completeness: 97 calories, three reported protein values, zero reported carbohydrate/fat
-values, zero checked current PHP prices. Unknown fields remain null. Budget searches exclude
-unknown prices. Source permission was attested by the operator for all described reuse; the
-owner permission document was not independently inspected. Permission is not nutrition approval.
-The user said they approve specific IDs but has not supplied those IDs. Do not fabricate a review
-receipt or mark the dataset verified.
+The badge now uses **actual healthy-choice ratings**, replacing the earlier goal/system-match
+rule. A Community pick needs at least three ratings with an average of four stars or higher.
+Meals with no qualifying ratings get no badge. Home displays a clearly described example seal.
+Rating controls accept one through five stars; another vote from the same browser identity
+updates its existing vote. No sample votes were inserted into the live catalog.
 
-The distributable dataset is `data/catalog/anongcaloriesnito.pending.json`, SHA-256
-`b6e07748cc88a6521622da9e59187cc1eca3fc6a7f91df855ed82f7ccc9f1659`.
-Use its README to load pending records on a fresh database. The immutable 36/60-record review
-exports are historical, include now-excluded source rows and must not define the current scope.
-The current account review export contains only 97 active records.
+`meal_ratings` stores item ID, SHA-256 of an anonymous browser UUID, score and update time.
+Votes never set `is_verified`. Their summary is attached to menu/chat responses; the client
+shares updated summaries through RatingsContext. POST `/api/v1/meal-ratings/{item_id}` validates
+scores and active items, with the existing request rate limiter. Browser identities are not
+verified user accounts; add authenticated identities/moderation before treating rankings as
+strong public reputation signals. A community opinion does not verify a calorie source.
 
-## Collection evidence and limits
+## Catalog, sources and images
 
-One bounded Instaloader attempt failed with `BadResponseException: Fetching Post metadata
-failed`; anonymous Python Instagram retrieval remains unresolved. Do not claim it was repaired
-or bypass authentication/rate limits. Public-browser inspection covered five original posts:
-7-Eleven (complete eight-slide carousel), partial Army Navy, Mary Grace, Tim Ho Wan and Good
-Habits Cafe. Secondary transcriptions supplied the bounded nutrition candidates. Not every
-original slide or menu item has been personally checked.
+121 active pending records across 21 brands; six separate-source KFC rows remain archived.
+There are zero human-approved records and zero checked current PHP prices. Known fields:
+121 calories, 11 protein, eight carbohydrate and eight fat values. Unknowns are not zero.
 
-The collector now stops outside the credited account. `app.services.source_scope` audits
-candidate original URLs, retained snapshot SHA-256 and visible credit; `--apply` updates
-active/archive state and rematches branches. For an existing DB, run against original local
-candidate batches and snapshot roots, not the distributable JSON that omits local paths:
+Latest batch: Crisostomo (8), CoCo Ichibanya (6), Dot Coffee (6), Conti's (4). Each brand was
+first observed in @anongcaloriesnito's public posts. Nutrition and images were then researched
+separately, as explicitly requested. `source_post_url` identifies the Instagram brand origin;
+`nutrition_source_url` identifies external calorie evidence. Both links appear in the interface.
 
-```sh
-.venv/bin/python -m app.services.source_scope --candidates /path/to/batch/candidates.json --snapshot-root /path/to/collection-root
-# inspect the proposed active/archive IDs, then apply the same arguments with --apply
-```
+Eight Crisostomo entries were matched to rendered labels in the official Florabel group PDF.
+The other 16 new values are labelled community transcriptions from explicit Philippine item/
+variant pages. CoCo Japan figures were not substituted; rice weight/inclusion remains unknown.
+Conti's pastries are per piece, including Lemon Squares; box prices were not made into meal
+prices. Dot drink sizes/temperatures are separate. Conflicting snack summaries were excluded.
+Food images link to their original sources and illustrate dishes/brands, not every branch.
 
-Pass all authorized batch files together. The audit treats records absent from the allowed
-batch evidence as inactive. It never changes `is_verified`. Re-audit after legacy/manual imports.
+Dataset: `data/catalog/anongcaloriesnito.pending.json`
+SHA-256: `0b88e435ed5f75bd5f6ba6239cefaf56f414fb54cacfe0a9b8153f52580981be`
+The 24-item subset and four new brand-origin observations are in that same folder. Its README
+has fresh-path prepare/dry-run/load commands. Older exports and hashes remain historical.
 
-## Verification completed
+`source_scope` validates retained nutrition snapshots plus matching Instagram origin observations
+(or older explicit-credit snapshots), and rematches real branches. Include all five original
+batches in a scope audit. Published JSON omits local evidence paths; use retained local batches
+for re-audits. The bounded Instaloader attempt still failed; automated Instagram retrieval has
+not been demonstrated. Nine original posts have been inspected across the project, not every
+item/slide. No specific human-approved IDs have been supplied; do not invent a review receipt.
 
-309 backend tests and 52 frontend tests passed, as did frontend lint and production build.
-Tests cover hard filters, pending/review separation, archived-source exclusion, snapshot credit
-checks, structured Search fields, map/chat synchronization, favorites, goal badges, meal-plan
-persistence/totals and route accessibility. Synthetic fixtures are tests, not collected evidence.
+## Verification and remaining work
 
-Live API checked: health/database/embedder ready with zero stale embeddings; catalog summary
-97/17/0-reviewed/97-pending; KFC menu empty even with pending opt-in; Mary Grace six pending
-items; Jollibee under500 returned five pending previews and no recommendations; budget250
-returned none because prices are unknown. Google keys and LLM are not configured here. OSM
-is the primary map. Public Overpass can time out; cached discovery and visible outage states
-remain necessary. Optional Google needs both browser Maps and server Places keys.
+316 backend tests and 57 frontend tests cover source scope, exact/relevant retrieval, review
+separation, anonymous rating uniqueness/thresholds, favorites, calendar/target persistence,
+settings opt-outs, three-brand lists and accessibility. Lint and production build pass.
+Live API checks: 121 records/21 brands, banana returns no matches, Jollibee under500 returns
+five pending matches and zero recommendations, and all added menus retain separate evidence.
+Browser checks cover compact/expanded map popups, theme contrast, responsive containment,
+restaurant filters, Chat disclosures, inline inspector, calendar and Settings controls.
 
-## Next priorities
+Google remains optional and was not exercised without keys. OSM is the current provider;
+public Overpass services can time out, so cached discovery and visible outage states remain.
+A brand can have menu data without an OSM branch; Browse all brands keeps its menu accessible.
+The methodology link is an existing external worththecals page credited to Felix Macaspac.
+It does not disclose whether AI helped author it; no human-only authorship claim is made.
 
-1. Complete remaining live phone/iPad/laptop interaction checks for Favorites and Meal Plan,
-   keeping any user-saved data intact. Verify long brand/menu labels and expanded plan forms.
-2. Obtain actual approved record IDs after personal source review, bound to the current dataset
-   SHA. Promote only those IDs through the receipt workflow. Recheck original serving bases.
-3. Collect more non-fast-food records from the same account using owner originals/exports or
-   permitted bounded collection. Preserve unknown macros/prices and exact source links.
-4. Verify current branch-specific prices separately if budget recommendations are needed.
-5. Configure optional Google/API grants only when supplied; no keys or sessions in Git.
-6. Review and merge through the normal repository workflow. Do not push directly to main or
-   force-rewrite history. A PR body is prepared in `docs/PR_BODY.md`; connector PR creation was
-   previously rejected with HTTP403, so no PR is claimed.
+Next: obtain real selected-ID source review; extend same-account brand discovery and checked PH
+nutrition; verify branch prices separately; finish account-level rating safeguards if deploying
+publicly. Review and merge normally—do not push to main or force-rewrite history. PR text is in
+`docs/PR_BODY.md`; no PR is claimed (earlier connector creation returned HTTP403).

@@ -1,3 +1,4 @@
+import MealRating from "./MealRating.jsx";
 import { useEffect, useState } from "react";
 import { brandItems } from "../api/client.js";
 import GoalBadge from "./GoalBadge.jsx";
@@ -40,10 +41,11 @@ export function BrandMenu({ slug, includePending = false, goals }) {
           <div key={label}><dt>{label}</dt><dd className="num">{grams(value)}</dd></div>)}
         </dl>
         <p className="menu-price">{item.price_php == null ? "Price unavailable" : `Source price ₱${item.price_php.toFixed(2)}`}</p>
-        <AddToPlan item={item} />
+        <MealRating item={item} /><AddToPlan item={item} />
         <footer className="menu-evidence">
           <p>{SOURCE_LABELS[item.source_classification] || "Source classification unavailable"}</p>
-          <div>{hasWebSource(item.source_post_url) && <a href={item.source_post_url} target="_blank" rel="noreferrer">Nutrition source ↗</a>}
+          <div>{hasWebSource(item.nutrition_source_url || item.source_post_url) && <a href={item.nutrition_source_url || item.source_post_url} target="_blank" rel="noreferrer">Nutrition source ↗</a>}
+            {item.nutrition_source_url && hasWebSource(item.source_post_url) && <a href={item.source_post_url} target="_blank" rel="noreferrer">Instagram brand post ↗</a>}
             {item.collected_at && <time dateTime={item.collected_at}>Collected {item.collected_at}</time>}
           </div>
         </footer>
@@ -54,15 +56,17 @@ export function BrandMenu({ slug, includePending = false, goals }) {
 }
 
 export function BranchPopup({ pin, goals, isFavorite, onToggleFavorite }) {
+  const [menuOpen, setMenuOpen] = useState(false);
   return <div className="branch-popup">
     <div className="branch-heading"><h2 className="branch-name">{pin.poi_name}</h2><FavoriteButton pin={pin} saved={isFavorite?.(pin)} onToggle={onToggleFavorite} /></div>
     <p className="branch-location">{pin.distance_km.toFixed(2)} km away{pin.address_hint ? ` · ${pin.address_hint}` : ""}</p>
     {pin.has_catalog_data || pin.has_calorie_data ? <>
-      <p className="branch-menu-count">{pin.catalog_item_count || pin.item_count} {pin.brand_name} menu records
+      <p className="branch-menu-count">{pin.catalog_item_count || pin.item_count} menu items
         {pin.has_calorie_data && <> · reviewed items from <strong className="num">{pin.min_calories} kcal</strong></>}
       </p>
-      {pin.pending_item_count > 0 && <p className="branch-review-note">{pin.pending_item_count} records pending review. Pending values are not used in meal recommendations.</p>}
-      <BrandMenu slug={pin.matched_brand_slug} includePending={Boolean(pin.has_catalog_data)} goals={goals} />
+      {pin.pending_item_count > 0 && <p className="branch-review-note">{pin.pending_item_count} pending source review</p>}
+      <button type="button" className="popup-menu-toggle" aria-expanded={menuOpen} onClick={() => setMenuOpen(value => !value)}>{menuOpen ? "Hide menu" : "View menu"}</button>
+      {menuOpen && <BrandMenu slug={pin.matched_brand_slug} includePending={Boolean(pin.has_catalog_data)} goals={goals} />}
     </> : <p className="branch-review-note">No reviewed calorie data is available for this restaurant yet.</p>}
   </div>;
 }

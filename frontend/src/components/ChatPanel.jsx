@@ -1,3 +1,4 @@
+import MealRating from "./MealRating.jsx";
 import { useEffect, useRef, useState } from "react";
 import { Icon } from "./Brand.jsx";
 import GoalBadge from "./GoalBadge.jsx";
@@ -30,8 +31,8 @@ export function NutritionPanel({ item, index, onLocate, preview = false, goals, 
     </div>
     <div className="mt-3 flex items-center justify-between gap-2 text-xs"><button type="button" className="flex min-w-0 items-center gap-1 text-left font-bold text-ube" onClick={() => onLocate(item)}><Icon name="pin" size={14} />{item.poi_name}</button><span className="num shrink-0 text-slate-mute">{item.distance_km.toFixed(2)} km</span><FavoriteButton pin={item} saved={isFavorite?.(item)} onToggle={onToggleFavorite} /></div>
     {item.place_id && <p className="mt-2 text-[10px] text-slate-mute"><a className="underline" target="_blank" rel="noreferrer" href={`https://www.google.com/maps/search/?${new URLSearchParams({ api: "1", query: item.poi_name, query_place_id: item.place_id })}`}>View branch on Google Maps</a>{item.attributions?.map(a => <span key={a.provider}> · {a.provider}</span>)}</p>}
-    <AddToPlan item={item} />
-    <p className="verification-note">{item.is_verified ? "Checked against source." : preview ? "Pending review; source values are not approved." : "Unverified; may contain OCR errors."} {/^https?:\/\//i.test(item.source_post_url || "") && <a className="underline" href={item.source_post_url} target="_blank" rel="noreferrer">Nutrition source</a>} {item.collected_at && <span>Collected {item.collected_at}. </span>}{/^https?:\/\//i.test(item.secondary_source_url || "") && <a className="underline" href={item.secondary_source_url} target="_blank" rel="noreferrer">Collection source</a>}</p>
+    <MealRating item={item} /><AddToPlan item={item} />
+    <p className="verification-note">{item.is_verified ? "Checked against source." : preview ? "Pending review; source values are not approved." : "Unverified; may contain OCR errors."} {/^https?:\/\//i.test(item.nutrition_source_url || item.source_post_url || "") && <a className="underline" href={item.nutrition_source_url || item.source_post_url} target="_blank" rel="noreferrer">Nutrition source</a>} {item.nutrition_source_url && /^https?:\/\//i.test(item.source_post_url || "") && <a className="underline" href={item.source_post_url} target="_blank" rel="noreferrer">Instagram brand post</a>} {item.collected_at && <span>Collected {item.collected_at}. </span>}{item.secondary_source_url !== item.nutrition_source_url && /^https?:\/\//i.test(item.secondary_source_url || "") && <a className="underline" href={item.secondary_source_url} target="_blank" rel="noreferrer">Collection source</a>}</p>
     <p className="mt-2 text-xs text-slate-mute">Brand nutrition; availability at this branch is not confirmed.</p>
   </article>;
 }
@@ -60,30 +61,23 @@ function Message({ msg, onLocate, searchContext, isFavorite, onToggleFavorite })
   </div>;
 }
 
+function RestaurantResults({ items, preview, response, onLocate, isFavorite, onToggleFavorite }) {
+  const groups = new Map();
+  items.forEach(item => { const key = item.brand_name; if (!groups.has(key)) groups.set(key, []); groups.get(key).push(item); });
+  return <div className="restaurant-results">{[...groups].map(([brand, meals]) => <details className="restaurant-result" key={brand}>
+    <summary><span><strong>{brand}</strong><small>{meals.length} {meals.length === 1 ? "menu item" : "menu items"} · {meals[0].distance_km.toFixed(2)} km{preview ? " · Pending review" : ""}</small></span><span className="expand-label">View meals</span></summary>
+    <div className="meal-result-grid">{meals.map((item, i) => <NutritionPanel key={item.item_id} item={item} index={i+1} preview={preview} onLocate={onLocate} goals={response.inspector?.constraints} isFavorite={isFavorite} onToggleFavorite={onToggleFavorite} />)}</div>
+  </details>)}</div>;
+}
+
 export function MealResults({ response, onLocate, isFavorite, onToggleFavorite }) {
-  const [notice, ...rest] = response.relaxation.applied ? response.answer.split("\n\n") : [null, response.answer];
-  const body = rest.join("\n\n");
-  return (
-    <div className="space-y-3">
-      {notice && <p className="border-l-4 border-mango bg-mango-soft px-3 py-2 text-sm">{notice}</p>}
-      {response.results.length === 0 ? (
-        <p className="whitespace-pre-wrap">{body}</p>
-      ) : (
-        <>
-          {response.inspector.generator_used === "llm" && <p className="whitespace-pre-wrap">{body}</p>}
-          <div className="meal-result-grid">
-            {response.results.map((item, i) => (
-              <NutritionPanel key={item.item_id} item={item} index={i + 1} onLocate={onLocate} goals={response.inspector?.constraints} isFavorite={isFavorite} onToggleFavorite={onToggleFavorite} />
-            ))}
-          </div>
-        </>
-      )}
-      {response.catalog_matches?.length > 0 && <section aria-label="Catalog matches pending review" className="space-y-3">
-        <h2>Catalog matches · pending review</h2>
-        <div className="meal-result-grid">{response.catalog_matches.map(item => <NutritionPanel key={item.item_id} item={item} preview onLocate={onLocate} goals={response.inspector?.constraints} isFavorite={isFavorite} onToggleFavorite={onToggleFavorite} />)}</div>
-      </section>}
-    </div>
-  );
+  const shared = { response, onLocate, isFavorite, onToggleFavorite };
+  return <div className="meal-results">
+    {response.answer && <p className="result-note">{response.answer}</p>}
+    {response.relaxation.applied && <p className="result-note">{response.relaxation.notice}</p>}
+    {response.results.length > 0 && <RestaurantResults items={response.results} {...shared} />}
+    {response.catalog_matches?.length > 0 && <section aria-label="Catalog matches pending review"><p className="result-note">Source menus · Pending review</p><RestaurantResults items={response.catalog_matches} preview {...shared} /></section>}
+  </div>;
 }
 
 export default function ChatPanel({ messages, onSend, busy, onLocate, searchContext, isFavorite, onToggleFavorite }) {
@@ -107,8 +101,8 @@ export default function ChatPanel({ messages, onSend, busy, onLocate, searchCont
         {messages.length === 0 && (
           <div className="chat-empty"><span className="assistant-mark"><Icon name="leaf" size={24} /></span><h2>Search for a meal</h2><p>Enter a food and any calorie, protein, or budget limits.</p><p className="mt-3">Example: “chicken under 500 kcal and PHP150”.</p></div>
         )}
-        {messages.map((m) => (
-          <Message key={m.id} msg={m} onLocate={onLocate} searchContext={searchContext} isFavorite={isFavorite} onToggleFavorite={onToggleFavorite} />
+        {messages.map((m, index) => (
+          <Message key={`${m.id}-${index}`} msg={m} onLocate={onLocate} searchContext={searchContext} isFavorite={isFavorite} onToggleFavorite={onToggleFavorite} />
         ))}
         {busy && <p className="text-sm text-slate-mute">Checking nearby restaurants…</p>}
         <div ref={endRef} />

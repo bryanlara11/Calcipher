@@ -1,8 +1,9 @@
 # CalCipher
 
-Hybrid RAG for Philippine restaurant calories: nutrition data from **@anongcaloriesnito** (OCR) is
-joined to real restaurant locations from **OpenStreetMap/Overpass** or **Google Places API (New)**, filtered by hard
-SQL constraints (calories, protein, distance), and ranked with **pgvector**.
+Philippine restaurant meal discovery with source-linked nutrition. Brands are selected from
+**@anongcaloriesnito**; calories can come from those posts, official Philippine menus or labelled
+web transcriptions. Actual branch locations come from OpenStreetMap/Overpass or optional Google
+Places. Hard SQL filters and pgvector keep nutrition and location constraints separate.
 
 Architecture, invariants and status: see [the architecture notes](docs/ARCHITECTURE.md).
 
@@ -20,25 +21,24 @@ RoBERTa model are retained. The LLM can select a retrieved record; factual text 
 - Organized nearby branches by brand, with expandable menus, source photos and readable nutrition cards.
 - Applied the supplied avocado logo and approval seal, matching green accents in both themes, white light-mode surfaces and shaded black/gray dark-mode panels.
 - Kept natural map colors and key-free OpenStreetMap discovery, with optional Google support.
-- Limited the active nutrition catalog to **97 pending records across 17 brands credited to @anongcaloriesnito**. Six other-source records are archived, not deleted. Café and sit-down options include Mary Grace, Tim Ho Wan, Marugame Udon and Good Habits Cafe.
+- Limited the active nutrition catalog to **121 pending records across 21 brands selected from @anongcaloriesnito**. Six other-source records are archived, not deleted. Café and sit-down options include Mary Grace, Tim Ho Wan, Marugame Udon, Good Habits Cafe, Crisostomo, CoCo Ichibanya, Dot Coffee and Conti’s. Nutrition can be enriched from official Philippine menus or labelled web transcriptions, with separate source links.
 - Kept nutrition, budget and distance limits exact. Missing values remain unknown. Only specifically human-approved records can enter recommendations.
 
 ## Current interface and verification
 
 Search finds meals by dish/brand and optional nutrition or budget limits; results stay on Search.
-Nearby finds actual branches and groups them by brand. Meal Chat shares the map pin, radius and
-provider; old replies are labelled when the area changes. Pending catalog previews remain separate
-from reviewed recommendations. Favorites and Meal Plan are stored on the current browser/device.
-A Healthy badge requires a reviewed meal matching the user's selected nutrition goals. Pending
-matches use a text label instead of the approval seal.
+Nearby finds actual branches, with category/name filters, alphabetical ordering and three brand cards at a time. Meal Chat shares the map pin, radius and
+provider; old replies are labelled when the area changes. Restaurant results expand on demand. Pending catalog previews remain separate
+from reviewed recommendations. Favorites, daily/weekly meal plans and user-set calorie targets are stored on the current browser/device. Month planning is marked Coming soon.
+A Community pick badge requires at least three actual healthy-choice ratings averaging four stars
+or higher. Ratings do not verify nutrition values; unrated meals get no badge.
 
-About menu data has its own page, linked only from Home. Settings contains appearance, map
-connection and privacy controls. Light, Dark and System theme choices persist locally.
+About menu data has its own page, linked only from Home. Settings contains appearance, map display, device-location access and connection controls. Retrieval details stay in the Chat page flow. Light, Dark and System theme choices persist locally.
 
-Verification: **309 backend tests, 52 frontend tests, lint and production build passed**. Live API
-checks confirmed 97 active records, 17 brands, zero reviewed records, no archived KFC menu items,
+Verification: **316 backend tests, 57 frontend tests, lint and production build passed**. Live API
+checks confirmed 121 active records, 21 brands, zero reviewed records, no archived KFC menu items,
 and exact calorie/budget behavior. Automated Instagram retrieval is still unresolved. There are
-zero checked current PHP prices; only three active records contain reported protein values.
+zero checked current PHP prices; 11 active records contain reported protein values.
 
 See [the handoff](docs/HANDOFF.md) for setup, dataset loading, remaining work and review boundaries.
 The distributable pending dataset is [here](data/catalog/anongcaloriesnito.pending.json).

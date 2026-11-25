@@ -35,6 +35,7 @@ from app.services.generator import GroundedGenerator
 from app.services.overpass_client import EARTH_RADIUS_KM, BranchDiscoveryService, DiscoveryResult, bounding_box
 from app.services.google_places import GooglePlacesDiscovery
 from app.services.query_parser import QueryParser
+from app.services.food_matching import food_pattern
 
 TOP_K = 5
 MAP_PIN_LIMIT = 500
@@ -78,6 +79,7 @@ candidates AS (
     JOIN nearby AS nb ON nb.matched_brand_slug = n.brand_slug
     WHERE n.is_active AND n.is_verified = CAST(:verified AS boolean)
       AND nb.distance_km <= :max_distance_km
+      AND (CAST(:food_pattern AS text) IS NULL OR n.food_item ~* CAST(:food_pattern AS text))
       AND (CAST(:max_cal AS integer) IS NULL OR n.calories <= CAST(:max_cal AS integer))
       AND (CAST(:min_protein AS numeric) IS NULL OR n.protein_g >= CAST(:min_protein AS numeric))
       AND (CAST(:max_price AS numeric) IS NULL OR (n.price_php IS NOT NULL AND n.is_verified
@@ -148,7 +150,8 @@ def _source_evidence(provenance: dict | None) -> dict[str, Any]:
     metadata = provenance or {}
     return {"source_classification": metadata.get("source_classification", "unknown"),
             "collected_at": metadata.get("collected_at"),
-            "secondary_source_url": metadata.get("secondary_source_url")}
+            "secondary_source_url": metadata.get("secondary_source_url"),
+            "nutrition_source_url": metadata.get("nutrition_source_url")}
 
 
 def _f(value: Any) -> float | None:
@@ -188,6 +191,7 @@ async def retrieve(
         "query_vec": to_pgvector_literal(list(query_vec)),
         "k": k,
         "verified": not pending_only,
+        "food_pattern": food_pattern(constraints.semantic_query, constraints.target_brand),
     }
     query = RETRIEVAL_SQL
     if places is not None:
@@ -359,6 +363,20 @@ class HybridRagService:
         validate_macro_physics(constraints)
         t = lap("parse", t0)
 
+        requested_food = food_pattern(constraints.semantic_query, constraints.target_brand)
+        if requested_food:
+            available = (await session.execute(text("SELECT EXISTS (SELECT 1 FROM nutrition_catalog WHERE is_active AND food_item ~* :pattern)"), {"pattern": requested_food})).scalar_one()
+            if not available:
+                timings["total"] = round((time.perf_counter() - t0) * 1000, 2)
+                return ChatResponse(
+                    answer=f"No menu items matching “{constraints.semantic_query}” are in the current catalog. Try another food or browse all brands.",
+                    results=[], catalog_matches=[], relaxation=RelaxationInfo(final_constraints=constraints),
+                    inspector=InspectorTrace(request_id=request_id or str(uuid.uuid4()), sanitized_query=sanitized.text,
+                        injection_flags=sanitized.flags, parser_used=parsed.parser_used, parser_warnings=parsed.warnings,
+                        constraints=constraints, discovery=[], embedder=self.embedder.name, candidate_count=0,
+                        catalog_candidate_count=0, retrieval_attempts=0, generator_used="template", timings_ms=timings),
+                )
+
         # Stage 1: discovery (Overpass or cache).
         brand_filter = {"brand": constraints.target_brand} if isinstance(self.discovery, GooglePlacesDiscovery) else {}
         discoveries = [await self.discovery.ensure_branches(session, lat, lng, constraints.max_distance_km, **brand_filter)]
@@ -378,8 +396,13 @@ class HybridRagService:
         relaxation = RelaxationInfo()
         final = constraints
 
-        # Stage 4a: zero-result relaxation.
+        catalog = RetrievalResult([], 0)
         if not result.items:
+            catalog = await retrieve(session, lat=lat, lng=lng, constraints=constraints, query_vec=query_vec,
+                                     places=discoveries[0].places, pending_only=True)
+
+        # Keep exact pending matches before widening a search.
+        if not result.items and not catalog.items:
             for note, relaxed in relaxation_ladder(constraints):
                 if relaxed.max_distance_km > constraints.max_distance_km and len(discoveries) == 1:
                     discoveries.append(
@@ -398,23 +421,17 @@ class HybridRagService:
                     )
                     break
             relaxation.final_constraints = final
-        catalog = RetrievalResult([], 0)
-        if not result.items:
-            catalog = await retrieve(
-                session, lat=lat, lng=lng, constraints=constraints, query_vec=query_vec,
-                places=discoveries[0].places, pending_only=True,
-            )
         t = lap("retrieval", t)
 
         # Stage 4b: grounded generation.
         answer, generator_used = await self.generator.generate(
             sanitized.text, result.items, final, relaxation.notice, original_constraints=constraints
         )
+        if not result.items and not catalog.items and food_pattern(constraints.semantic_query, constraints.target_brand):
+            answer = f"No menu items matching “{constraints.semantic_query}” meet your filters in this area. Try another food or browse all brands."
         if catalog.items:
             answer = (
-                f"I found {len(catalog.items)} catalog matches within {constraints.max_distance_km:g} km of your pin. "
-                "These source records are pending review. You can browse them here or in Nearby; "
-                "they are not approved meal recommendations yet."
+                f"{len(catalog.items)} menu {'item matches' if len(catalog.items) == 1 else 'items match'} your search (pending review). Expand a restaurant to view meals."
             )
         lap("generation", t)
         timings["total"] = round((time.perf_counter() - t0) * 1000, 2)

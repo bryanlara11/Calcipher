@@ -67,3 +67,11 @@ export function health() {
 export function catalogSummary({ signal } = {}) {
   return request("/api/v1/catalog-summary", { signal });
 }
+
+export function catalogBrands({ signal } = {}) {
+  return request("/api/v1/catalog-brands", { signal });
+}
+
+export function rateMeal(itemId, voterId, score) {
+  return request(`/api/v1/meal-ratings/${encodeURIComponent(itemId)}`, { method: "POST", body: JSON.stringify({ voter_id: voterId, score }) });
+}

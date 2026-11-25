@@ -31,8 +31,10 @@ function BranchRow({ pin, onLocate, isFavorite, onToggleFavorite }) {
   </button><FavoriteButton pin={pin} saved={isFavorite(pin)} onToggle={onToggleFavorite} /></li>;
 }
 
-export default function BrandDirectory({ pins, onLocate, isFavorite, onToggleFavorite, goals }) {
-  return <div className="brand-directory">{groupByBrand(pins).map(group => {
+export default function BrandDirectory({ pins, onLocate, isFavorite, onToggleFavorite, goals, sortOrder = "az" }) {
+  const [visible, setVisible] = useState(3);
+  const groups = groupByBrand(pins).sort((a,b) => sortOrder === "nearest" ? a.pins[0].distance_km - b.pins[0].distance_km : sortOrder === "za" ? b.name.localeCompare(a.name) : a.name.localeCompare(b.name));
+  return <><div className="brand-directory">{groups.slice(0, visible).map(group => {
     const sample = group.pins[0];
     const photo = brandPhoto(group.key);
     const rows = list => <ul className="brand-branch-list">{list.map(pin => <BranchRow key={branchKey(pin)} pin={pin} onLocate={onLocate} isFavorite={isFavorite} onToggleFavorite={onToggleFavorite} />)}</ul>;
@@ -41,9 +43,9 @@ export default function BrandDirectory({ pins, onLocate, isFavorite, onToggleFav
         : <span className="brand-monogram" aria-hidden="true">{group.name.split(/\s+/).slice(0,2).map(word => word[0]).join("")}</span>}
         <div><h3>{group.name}</h3><p>{group.pins.length} nearby {group.pins.length === 1 ? "branch" : "branches"} · {sample.catalog_item_count ?? sample.item_count} menu records</p></div>
       </header>
-      {rows(group.pins.slice(0, 2))}
-      {group.pins.length > 2 && <details className="brand-more"><summary>View {group.pins.length - 2} more branches</summary>{rows(group.pins.slice(2))}</details>}
+      {rows(group.pins.slice(0, 1))}
+      {group.pins.length > 1 && <details className="brand-more"><summary>View {group.pins.length - 1} more {group.pins.length === 2 ? "branch" : "branches"}</summary>{rows(group.pins.slice(1))}</details>}
       {sample.matched_brand_slug && <MenuDisclosure pin={sample} name={group.name} goals={goals} />}
     </article>;
-  })}</div>;
+  })}</div>{visible < groups.length && <button type="button" className="button-secondary more-brands" onClick={() => setVisible(value => value + 3)}>Show more restaurants ({groups.length - visible} remaining)</button>}</>;
 }

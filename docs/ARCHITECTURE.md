@@ -4,20 +4,20 @@ This document describes the project architecture, data safeguards and implementa
 
 ## Current release status — 2026-11-25
 
-The current interface includes Home, meal Search, brand-grouped Nearby, synced Chat, Meal Plan,
-Favorites and Settings. About menu data is linked only from Home. The latest supplied avocado
-logo is used throughout; both themes share #5B8219 accents, with white Light surfaces and shaded
-black/gray Dark panels. Source images carry attribution and branch-availability caveats.
+121 active pending records across 21 Instagram-origin brands; six outside-source rows archived.
+Nutrition may be researched from official PH menus or labelled transcriptions, with distinct
+brand-origin and calorie-evidence URLs. See `data/catalog/README.md` for the current dataset hash.
 
-Active nutrition scope is @anongcaloriesnito only: 97 pending records, 17 brands, zero reviewed.
-Six other-source KFC rows remain archived, excluded from retrieval/menus/map matching. The
-query parser recognizes archived brand names to avoid substituting unrelated restaurants.
-Favorites and Meal Plan are local browser data. A Healthy badge requires explicit human review
-and satisfaction of the user's selected nutrition goals. Pending goal matches use text only.
+The interface now has restaurant-first expandable results, bounded/themed map popups, Nearby
+name/category/sort controls and three initial brand cards, all-brand browsing, map/location
+opt-outs, inline retrieval details, and daily/weekly planning with personal targets/progress.
+Month planning is Coming soon. Community badges require actual ratings (three or more, average
+four stars or higher). Ratings never approve nutrition data. Home uses a short plain guide.
 
-Checks: 309 backend tests, 52 frontend tests, lint/build passed. Live API checks confirm source
-scope and exact filter behavior. See `docs/HANDOFF.md` for limitations. Historical entries below
-record earlier states and counts; they do not override this current release status.
+Explicit food terms constrain SQL retrieval before semantic ranking. Absent foods return a
+clear no-match response before discovery; exact pending previews precede wider searches.
+316 backend / 57 frontend tests, lint and production build pass. Historical entries below
+record previous states; current behavior and `docs/HANDOFF.md` take precedence.
 
 ## 1. Project Overview & Core Data Reality
 

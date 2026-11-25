@@ -127,7 +127,7 @@ export default function GoogleMap({ location, onMove, onViewport, radiusKm, pins
     </div>}
     {popup && createPortal(<>
       {popup.pin.has_calorie_data !== undefined ? <BranchPopup pin={popup.pin} goals={goals} isFavorite={isFavorite} onToggleFavorite={onToggleFavorite} /> : <strong>{popup.pin.poi_name}</strong>}
-      {popup.items.map(({item, number}) => <p key={item.item_id}>{number}. {item.food_item} · {item.calories} kcal</p>)}
+      {popup.pin.has_calorie_data === undefined && popup.items.length > 0 && <details className="popup-results"><summary>Matching meals ({popup.items.length})</summary>{popup.items.map(({item}) => <p key={item.item_id}>{item.food_item} · {item.calories} kcal</p>)}</details>}
       {(popup.pin.attributions || []).map(a => <p key={a.provider}>{a.provider}</p>)}
     </>, popup.node)}
   </>;

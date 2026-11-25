@@ -331,3 +331,123 @@ def test_collector_does_not_import_records_outside_selected_account(tmp_path):
         collect_entries([{"record_id":"SYNTHETIC","brand_name":"Synthetic Chain","url":"https://worththecals.com/calories/test"}],
                         output, permission_reference="synthetic", client=httpx.Client(transport=httpx.MockTransport(handler)), delay_s=0)
     assert not output.exists()
+
+
+def test_external_nutrition_requires_matching_retained_instagram_brand_origin(tmp_path):
+    from app.services.source_scope import allowed_candidate
+    nutrition = tmp_path / "menu.pdf"
+    nutrition.write_bytes(b"synthetic official menu evidence")
+    proof = tmp_path / "origin.txt"
+    proof.write_text("https://www.instagram.com/anongcaloriesnito/p/testpost/\nAccount observed: @anongcaloriesnito\nSynthetic Bistro menu")
+    row = {"brand_name": "Synthetic Bistro", "source_post_url": "https://www.instagram.com/p/testpost/",
+           "snapshot_path": str(nutrition), "snapshot_sha256": hashlib.sha256(nutrition.read_bytes()).hexdigest(),
+           "nutrition_source_url": "https://example.org/menu.pdf", "field_sources": {"calories": "https://example.org/menu.pdf"},
+           "brand_origin": {"account": "anongcaloriesnito", "brand_name": "Synthetic Bistro",
+                            "post_url": "https://www.instagram.com/anongcaloriesnito/p/testpost/",
+                            "snapshot_path": str(proof), "snapshot_sha256": hashlib.sha256(proof.read_bytes()).hexdigest()}}
+    assert allowed_candidate(row, tmp_path)
+    assert not allowed_candidate({**row, "brand_name": "Unrelated Bistro"}, tmp_path)
+    assert not allowed_candidate({**row, "source_post_url": "https://www.instagram.com/p/otherpost/"}, tmp_path)
+    assert not allowed_candidate({**row, "brand_origin": {**row["brand_origin"], "account": "someoneelse"}}, tmp_path)
+    proof.write_text("changed evidence")
+    with pytest.raises(ValueError, match="hash mismatch"):
+        allowed_candidate(row, tmp_path)
+
+
+def test_external_nutrition_links_survive_preparation_and_public_evidence(tmp_path):
+    from app.services.hybrid_rag import _source_evidence
+    source, output, _ = files(tmp_path, [candidate(nutrition_source_url="https://example.org/nutrition.pdf",
+        brand_origin={"account": "anongcaloriesnito", "post_url": "https://www.instagram.com/p/synthetic/"})])
+    prepare_review(source, output)
+    record = read_reviewed(output).items[0]
+    assert record.provenance["brand_origin"]["account"] == "anongcaloriesnito"
+    evidence = _source_evidence(record.provenance)
+    assert evidence["nutrition_source_url"] == "https://example.org/nutrition.pdf"
+    assert "brand_origin" not in evidence  # local evidence paths stay private
+    assert read_reviewed(output).verified == [False]
+
+
+@pytest.mark.db
+async def test_food_search_rejects_unrelated_similarity_matches(db_session):
+    await add_item(db_session, brand_name="Synthetic Cafe", brand_slug="synthetic cafe", food_item="Banana bread", calories=240, verified=False)
+    await add_item(db_session, brand_name="Synthetic Cafe", brand_slug="synthetic cafe", food_item="Chicken sandwich", calories=240, verified=False)
+    await add_branch(db_session, osm_id=899001, poi_name="Synthetic Cafe", lat=UPM_LAT, lng=UPM_LNG, slug="synthetic cafe")
+    base = dict(lat=UPM_LAT, lng=UPM_LNG, query_vec=HashingEmbedder().embed_one("banana"), pending_only=True)
+    matches = await retrieve(db_session, **base, constraints=SearchConstraints(semantic_query="banana", max_distance_km=1))
+    assert [row.food_item for row in matches.items] == ["Banana bread"]
+    missing = await retrieve(db_session, **base, constraints=SearchConstraints(semantic_query="mango", max_distance_km=1))
+    assert missing.items == []
+    both = await retrieve(db_session, **base, constraints=SearchConstraints(semantic_query="banana sandwich", max_distance_km=1))
+    assert both.items == []
+    await add_item(db_session, brand_name="Synthetic Cafe", brand_slug="synthetic cafe", food_item="Latte", calories=90, verified=False)
+    await add_item(db_session, brand_name="Synthetic Cafe", brand_slug="synthetic cafe", food_item="Americano", calories=5, verified=False)
+    specific = await retrieve(db_session, **base, constraints=SearchConstraints(semantic_query="latte", max_distance_km=1))
+    assert [row.food_item for row in specific.items] == ["Latte"]
+
+
+@pytest.mark.db
+async def test_brand_browser_includes_catalog_without_nearby_branch_and_excludes_archives(db_session):
+    from app.main import create_app
+    from app.db.session import get_session
+    from sqlalchemy import update
+    await add_item(db_session, brand_name="Synthetic Cafe", brand_slug="synthetic cafe", food_item="Coffee", calories=80, verified=False)
+    await add_item(db_session, brand_name="Archived Cafe", brand_slug="archived cafe", food_item="Coffee", calories=80, verified=False)
+    await db_session.execute(update(NutritionCatalog).where(NutritionCatalog.brand_slug == "archived cafe").values(is_active=False))
+    app = create_app()
+    async def override(): yield db_session
+    app.dependency_overrides[get_session] = override
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app),base_url="http://test") as client:
+        data = (await client.get('/api/v1/catalog-brands')).json()
+    assert data == {"brands": [{"brand_slug":"synthetic cafe","brand_name":"Synthetic Cafe","records":1,"reviewed":0,"pending":1}]}
+
+
+@pytest.mark.db
+async def test_unknown_food_returns_no_matches_before_discovery(db_session):
+    from tests.test_hybrid_rag import make_service
+    from unittest.mock import AsyncMock
+    service = make_service()
+    service.discovery.ensure_branches = AsyncMock(side_effect=AssertionError("No location lookup needed for an absent food"))
+    reply = await service.chat(db_session, message="banana", lat=UPM_LAT, lng=UPM_LNG)
+    assert not reply.results and not reply.catalog_matches
+    assert "banana" in reply.answer and "current catalog" in reply.answer
+    assert reply.inspector.retrieval_attempts == 0
+
+
+@pytest.mark.db
+async def test_community_votes_are_real_unique_per_browser_and_do_not_approve_nutrition(db_session):
+    import uuid
+    from app.services.meal_ratings import save_rating, rating_summaries
+    await add_item(db_session,brand_name="Synthetic ratings",brand_slug="synthetic ratings",food_item="Test salad",calories=200,verified=False)
+    item = (await db_session.execute(select(NutritionCatalog))).scalar_one()
+    assert await rating_summaries(db_session,[item.id]) == {}
+    voters = [uuid.uuid4() for _ in range(3)]
+    for i,voter in enumerate(voters):
+        summary = await save_rating(db_session,item.id,voter,5)
+        assert summary["rating_count"] == i+1
+        assert summary["community_pick"] is (i == 2)
+    changed = await save_rating(db_session,item.id,voters[0],1)
+    assert changed["rating_count"] == 3 and not changed["community_pick"]
+    assert (await db_session.execute(select(NutritionCatalog.is_verified))).scalar_one() is False
+
+
+@pytest.mark.db
+async def test_rating_api_rejects_invalid_scores_and_archived_items(db_session):
+    import uuid
+    from sqlalchemy import update
+    from app.main import create_app
+    from app.db.session import get_session
+    await add_item(db_session,brand_name="Synthetic ratings",brand_slug="synthetic ratings",food_item="Test salad",calories=200,verified=False)
+    item_id = (await db_session.execute(select(NutritionCatalog.id))).scalar_one()
+    app = create_app()
+    async def override(): yield db_session
+    app.dependency_overrides[get_session] = override
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app),base_url="http://test") as client:
+        invalid = await client.post(f'/api/v1/meal-ratings/{item_id}',json={"voter_id":str(uuid.uuid4()),"score":6})
+        assert invalid.status_code == 422
+        accepted = await client.post(f'/api/v1/meal-ratings/{item_id}',json={"voter_id":str(uuid.uuid4()),"score":5})
+        assert accepted.status_code == 200
+        assert accepted.json()["rating_count"] == 1 and not accepted.json()["community_pick"]
+        assert isinstance(accepted.json()["rating_updated_at"], str)
+        await db_session.execute(update(NutritionCatalog).values(is_active=False))
+        missing = await client.post(f'/api/v1/meal-ratings/{item_id}',json={"voter_id":str(uuid.uuid4()),"score":5})
+        assert missing.status_code == 404
