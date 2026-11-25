@@ -241,6 +241,8 @@ class DiscoveryResult:
     elapsed_ms: float = 0.0
     # None selects the legacy database source. An empty live result stays empty.
     places: list[dict[str, Any]] | None = None
+    # Set when a wrapper answered with a provider other than the configured one (Google fallback).
+    provider: Literal["google", "osm"] | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -283,8 +285,11 @@ class BranchDiscoveryService:
     def _cooling_down(self) -> bool:
         return time.monotonic() < self._cooldown_until
 
-    async def is_covered(self, session: AsyncSession, lat: float, lng: float, radius_m: int) -> bool:
-        cutoff = datetime.now(timezone.utc) - self.ttl
+    async def is_covered(
+        self, session: AsyncSession, lat: float, lng: float, radius_m: int, *, fresh_only: bool = True
+    ) -> bool:
+        """True when a past Overpass fetch covers the circle; with fresh_only=False, expired fetches count too."""
+        cutoff = datetime.now(timezone.utc) - self.ttl if fresh_only else datetime.min.replace(tzinfo=timezone.utc)
         pad_km = (radius_m + self.max_radius_m + GRID_PAD_M) / 1000
         min_lat, max_lat, min_lng, max_lng = bounding_box(lat, lng, pad_km)
         rows = await session.execute(

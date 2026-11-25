@@ -34,6 +34,7 @@ from app.services.brand_matcher import BrandRegistry
 from app.services.embedder import Embedder, to_pgvector_literal
 from app.services.generator import GroundedGenerator
 from app.services.overpass_client import EARTH_RADIUS_KM, BranchDiscoveryService, DiscoveryResult, bounding_box
+from app.services.discovery_fallback import OsmFirstDiscovery
 from app.services.google_places import GooglePlacesDiscovery
 from app.services.query_parser import QueryParser
 from app.services.food_matching import food_pattern, question_field, search_order
@@ -42,6 +43,8 @@ from app.services.meal_answers import direct_answer, snack_answer, help_answer
 TOP_K = 5
 MAP_PIN_LIMIT = 500
 DEFAULT_SEMANTIC_QUERY = "filling meal"
+
+Discovery = BranchDiscoveryService | GooglePlacesDiscovery | OsmFirstDiscovery
 
 # Haversine great-circle distance in km between the bound user point and a branch row `b`.
 _HAVERSINE_KM = f"""(
@@ -322,15 +325,20 @@ def relaxation_ladder(c: SearchConstraints) -> list[tuple[str, SearchConstraints
     return []
 
 
-def _trace(d: DiscoveryResult, discovery: BranchDiscoveryService | GooglePlacesDiscovery) -> DiscoveryTrace:
-    return DiscoveryTrace(**d.as_dict(), provider="google" if isinstance(discovery, GooglePlacesDiscovery) else "osm")
+def _trace(d: DiscoveryResult, discovery: Discovery) -> DiscoveryTrace:
+    provider = d.provider or ("google" if isinstance(discovery, GooglePlacesDiscovery) else "osm")
+    return DiscoveryTrace(**d.as_dict(), provider=provider)
+
+
+def _takes_google_options(discovery: Discovery) -> bool:
+    return isinstance(discovery, (GooglePlacesDiscovery, OsmFirstDiscovery))
 
 
 class HybridRagService:
     def __init__(
         self,
         *,
-        discovery: BranchDiscoveryService | GooglePlacesDiscovery,
+        discovery: Discovery,
         parser: QueryParser,
         embedder: Embedder,
         generator: GroundedGenerator,
@@ -443,7 +451,7 @@ class HybridRagService:
                 )
 
         # Stage 1: discovery (Overpass or cache).
-        brand_filter = {"brand": constraints.target_brand} if isinstance(self.discovery, GooglePlacesDiscovery) else {}
+        brand_filter = {"brand": constraints.target_brand} if _takes_google_options(self.discovery) else {}
         discoveries = [await self.discovery.ensure_branches(session, lat, lng, constraints.max_distance_km, **brand_filter)]
         if discoveries[0].source == "live" and discoveries[0].places is None:
             await self.brands.refresh(session)
@@ -528,7 +536,7 @@ class HybridRagService:
         self, session: AsyncSession, *, lat: float, lng: float, radius_km: float, include_unmatched: bool, viewport=None,
         include_pending: bool = False,
     ) -> tuple[list[BranchPin], DiscoveryTrace]:
-        options = {"spread_map": True, "viewport": viewport} if isinstance(self.discovery, GooglePlacesDiscovery) else {}
+        options = {"spread_map": True, "viewport": viewport} if _takes_google_options(self.discovery) else {}
         discovery = await self.discovery.ensure_branches(session, lat, lng, radius_km, **options)
         if discovery.source == "live" and discovery.places is None:
             await self.brands.refresh(session)

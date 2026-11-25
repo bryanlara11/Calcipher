@@ -34,6 +34,7 @@ from app.services.embedder import get_embedder
 from app.services.generator import GroundedGenerator
 from app.services.hybrid_rag import HybridRagService, brand_items
 from app.services.llm import GeminiClient, LLMClient
+from app.services.discovery_fallback import OsmFirstDiscovery
 from app.services.google_places import GooglePlacesDiscovery, PlacesQuotaLimited, PlacesUnavailable
 from app.services.query_parser import QueryParser
 from app.services.meal_ratings import attach_ratings, save_rating
@@ -54,6 +55,13 @@ def build_rag_service(settings: Settings, brands: BrandRegistry, provider: str =
             )
         except Exception:  # missing package or bad key format: degrade to regex/template
             logger.exception("Gemini client unavailable; continuing without LLM")
+    def google() -> GooglePlacesDiscovery:
+        return GooglePlacesDiscovery(
+            settings.google_places_api_key, location_brands.refresh_if_stale,
+            cache_ttl_s=settings.places_cache_ttl_s, state_path=settings.places_state_path,
+        )
+
+    discovery: BranchDiscoveryService | GooglePlacesDiscovery | OsmFirstDiscovery
     if provider == "osm":
         discovery = BranchDiscoveryService(
             OverpassClient(settings.overpass_urls, user_agent=settings.overpass_user_agent,
@@ -62,11 +70,10 @@ def build_rag_service(settings: Settings, brands: BrandRegistry, provider: str =
             max_radius_m=settings.overpass_max_radius_m, enabled=settings.overpass_enabled,
             failure_cooldown_s=settings.overpass_failure_cooldown_s,
         )
+        if settings.google_places_api_key and settings.google_places_mode == "fallback":
+            discovery = OsmFirstDiscovery(discovery, google())
     else:
-        discovery = GooglePlacesDiscovery(
-            settings.google_places_api_key, location_brands.refresh_if_stale,
-            cache_ttl_s=settings.places_cache_ttl_s, state_path=settings.places_state_path,
-        )
+        discovery = google()
     return HybridRagService(
         discovery=discovery,
         parser=QueryParser(llm),
@@ -87,8 +94,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         from app.db.maintenance import rematch_branches
         await rematch_branches(session, await load_brand_matcher(session, include_pending=True))
         app.state.osm_rag = build_rag_service(settings, brands, "osm")
-        app.state.rag = (build_rag_service(settings, brands) if settings.google_places_api_key
-                         else app.state.osm_rag)
+        google_primary = bool(settings.google_places_api_key) and settings.google_places_mode == "primary"
+        app.state.rag = build_rag_service(settings, brands) if google_primary else app.state.osm_rag
         stale = await count_stale_embeddings(session, app.state.rag.embedder.name)
     if stale:
         logger.warning(
@@ -193,10 +200,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.get("/api/v1/map-config")
     async def map_config(browser_key_configured: bool = False) -> dict[str, object]:
         # Only capability flags leave the server. Never return the server Places key.
-        google_ready = bool(settings.google_places_api_key) and browser_key_configured
+        google_ready = (bool(settings.google_places_api_key) and browser_key_configured
+                        and settings.google_places_mode == "primary")
         return {
             "provider": "google" if google_ready else "osm",
             "google_places_configured": bool(settings.google_places_api_key),
+            "google_fallback": bool(settings.google_places_api_key) and settings.google_places_mode == "fallback",
             "osm_discovery_enabled": settings.overpass_enabled,
         }
 

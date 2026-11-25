@@ -283,6 +283,19 @@ async def test_expired_cache_triggers_refetch(db_session):
 
 
 @pytest.mark.db
+async def test_expired_fetch_still_counts_as_saved_coverage_for_fallback_decisions(db_session):
+    service, _ = make_service({MIRRORS[0]: _ok})
+    assert not await service.is_covered(db_session, UPM_LAT, UPM_LNG, 1000, fresh_only=False)
+    db_session.add(OverpassFetchLog(
+        grid_key="food-v2:x", center_lat=UPM_LAT, center_lng=UPM_LNG, radius_m=5000, element_count=0,
+        fetched_at=datetime.now(timezone.utc) - timedelta(days=30),
+    ))
+    await db_session.commit()
+    assert not await service.is_covered(db_session, UPM_LAT, UPM_LNG, 1000)
+    assert await service.is_covered(db_session, UPM_LAT, UPM_LNG, 1000, fresh_only=False)
+
+
+@pytest.mark.db
 async def test_old_restaurant_only_coverage_refetches_to_include_catalog_food_stores(db_session):
     service, rec = make_service({MIRRORS[0]: _ok})
     db_session.add(OverpassFetchLog(

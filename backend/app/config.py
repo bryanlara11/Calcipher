@@ -31,6 +31,9 @@ class Settings(BaseSettings):
     auto_create_schema: bool = True
 
     google_places_api_key: SecretStr | None = None
+    # "fallback": OpenStreetMap first, Google Places only when Overpass fails with no saved coverage.
+    # "primary": Google Places for everything when the browser Maps key is also configured.
+    google_places_mode: Literal["fallback", "primary"] = "fallback"
     # Reuse a Places response for the same area this long (0 disables). Keeps map/chat
     # repeats from spending quota; see Google's Places caching terms before raising it.
     places_cache_ttl_s: int = Field(300, ge=0, le=3600)
