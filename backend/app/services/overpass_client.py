@@ -46,7 +46,7 @@ QUERY_CACHE_PREFIX = "food-v2:"
 OVERPASS_SEMAPHORE = asyncio.Semaphore(1)
 
 _QUERY_TEMPLATE = (
-    '[out:json][timeout:15];('
+    '[out:json][timeout:{server_timeout_s}];('
     'nwr["amenity"~"restaurant|fast_food|cafe"](around:{radius_m},{lat:.6f},{lng:.6f});'
     'nwr["shop"="convenience"]["brand"~"7[ -]?eleven",i](around:{radius_m},{lat:.6f},{lng:.6f});'
     'nwr["shop"="convenience"]["name"~"7[ -]?eleven",i](around:{radius_m},{lat:.6f},{lng:.6f});'
@@ -111,11 +111,16 @@ def in_philippines(lat: float, lng: float) -> bool:
 # ---------------------------------------------------------------------------
 
 
-def build_query(lat: float, lng: float, radius_m: int) -> str:
+def build_query(lat: float, lng: float, radius_m: int, server_timeout_s: int = 15) -> str:
     lat, lng, radius_m = float(lat), float(lng), int(radius_m)
     if not (math.isfinite(lat) and math.isfinite(lng)) or radius_m <= 0:
         raise ValueError("invalid Overpass query parameters")
-    return _QUERY_TEMPLATE.format(radius_m=radius_m, lat=lat, lng=lng)
+    return _QUERY_TEMPLATE.format(radius_m=radius_m, lat=lat, lng=lng, server_timeout_s=int(server_timeout_s))
+
+
+def server_timeout_for(client_timeout_s: float) -> int:
+    """Overpass-side query limit: at least 15 s, and 5 s under the client wait so its answer still arrives."""
+    return max(15, int(client_timeout_s) - 5)
 
 
 def _as_float(value: Any) -> float | None:
@@ -181,7 +186,7 @@ class OverpassClient:
         self._transport = transport
 
     async def fetch_pois(self, lat: float, lng: float, radius_m: int) -> list[OsmPoi]:
-        query = build_query(lat, lng, radius_m)
+        query = build_query(lat, lng, radius_m, server_timeout_for(self.timeout_s))
         errors: list[str] = []
         async with OVERPASS_SEMAPHORE:
             async with httpx.AsyncClient(

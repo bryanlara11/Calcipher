@@ -359,3 +359,10 @@ async def test_failure_opens_circuit_breaker(db_session):
     rec.script = {MIRRORS[0]: _ok}
     third = await service.ensure_branches(db_session, UPM_LAT, UPM_LNG, 1.0)
     assert third.source == "live"
+
+
+def test_query_server_limit_follows_client_wait():
+    from app.services.overpass_client import server_timeout_for
+    assert server_timeout_for(8) == 15 and server_timeout_for(20) == 15
+    assert server_timeout_for(45) == 40
+    assert build_query(14.5785, 120.985, 3000, server_timeout_for(45)).startswith("[out:json][timeout:40];(")
