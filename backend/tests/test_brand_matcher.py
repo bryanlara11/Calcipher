@@ -111,3 +111,9 @@ def test_find_in_text(matcher):
     assert matcher.find_in_text("anything at mang inasal under 500 cal") == "mang inasal"
     assert matcher.find_in_text("Kenny Rogers Roasters chicken please") == "kenny rogers roasters"
     assert matcher.find_in_text("cheap sisig near me") is None
+
+
+def test_kfc_branches_match_by_short_and_full_name():
+    matcher = BrandMatcher({"kfc", "jollibee"})
+    for name in ("KFC", "KFC - Robinsons Place Manila", "Kentucky Fried Chicken"):
+        assert matcher.match(name).slug == "kfc"

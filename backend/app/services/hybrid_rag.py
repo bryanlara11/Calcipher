@@ -151,7 +151,7 @@ SELECT id AS item_id, brand_name, food_item, calories, protein_g, carbs_g, fat_g
 FROM nutrition_catalog
 WHERE brand_slug = :brand_slug AND is_active AND (is_verified OR CAST(:include_pending AS boolean))
 ORDER BY calories ASC
-LIMIT 100
+LIMIT 250
 """
 )
 

@@ -42,6 +42,7 @@ BRAND_ALIASES: dict[str, str] = {
     "24chicken": "24 chicken",
     "chow king": "chowking",
     "jolibee": "jollibee",
+    "kentucky fried chicken": "kfc",
     "subway sandwiches": "subway",
     "uncle john": "uncle johns",
     "ministop uncle johns": "uncle johns",

@@ -1,5 +1,16 @@
 # Instagram-origin brands with sourced nutrition
 
+## KFC (official Philippine nutrition table)
+
+`kfc-official.pending.json` adds **104 pending KFC records** at the user's request (2026-11-26).
+It is the exception to the Instagram-origin brand rule below: KFC was added directly from KFC
+Philippines' official nutrition and allergen table
+(https://corporate.kfc.com.ph/nutrition-and-allergen-information/), transcribed on 2026-11-17.
+Every record is labelled `official` and stays pending until a human reviews it. Serving sizes
+keep KFC's own basis: "1 of 10 servings" means one serving of a shared item such as a bucket,
+not the whole item. Four rows whose official macros did not add up to the listed calories were
+left out. `deploy/start.sh` loads this file after the main catalog at every boot.
+
 `anongcaloriesnito.pending.json` contains **121 pending records across 21 Philippine brands**.
 Brands are selected from @anongcaloriesnito. Nutrition may come from the original posts, an
 official Philippine menu, or a clearly labelled web transcription. No brand is added solely

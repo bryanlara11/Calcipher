@@ -65,3 +65,19 @@ async def test_page_revalidates_while_hashed_assets_cache(tmp_path):
     assert page.headers["cache-control"] == "no-cache"
     assert "immutable" in bundle.headers["cache-control"]
     assert "cache-control" not in api.headers
+
+
+@pytest.mark.parametrize("name,count", [("anongcaloriesnito", 121), ("kfc-official", 104)])
+def test_committed_catalogs_pass_review_as_pending(tmp_path, name, count):
+    # deploy/start.sh loads these at every boot; a failing file would stop the hosted app.
+    from pathlib import Path
+    from app.ingest import read_reviewed
+    from app.services.source_review import prepare_review
+    catalog = Path(__file__).resolve().parents[2] / "data" / "catalog" / f"{name}.pending.json"
+    summary = prepare_review(catalog, tmp_path / "reviewed.csv")
+    assert summary["records"] == count and summary["approved"] == 0
+    parsed = read_reviewed(tmp_path / "reviewed.csv")
+    assert parsed.errors == [] and len(parsed.items) == count and not any(parsed.verified)
+    if name == "kfc-official":
+        assert {item.provenance["source_classification"] for item in parsed.items} == {"official"}
+        assert {item.brand_slug for item in parsed.items} == {"kfc"}
