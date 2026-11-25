@@ -379,3 +379,16 @@ def test_query_server_limit_follows_client_wait():
     assert server_timeout_for(8) == 15 and server_timeout_for(20) == 15
     assert server_timeout_for(45) == 40
     assert build_query(14.5785, 120.985, 3000, server_timeout_for(45)).startswith("[out:json][timeout:40];(")
+
+
+@pytest.mark.db
+async def test_device_location_lookup_writes_nothing(db_session):
+    service, rec = make_service({MIRRORS[0]: _ok})
+    result = await service.ensure_branches(db_session, UPM_LAT, UPM_LNG, 1.5, persist=False)
+
+    assert result.source == "live" and result.fetched_count == 5 and result.matched_count == 4
+    assert {p["osm_id"] for p in result.places} == {101, 202, 303, 404, 505}
+    assert all(p["place_id"] is None and "last_fetched_at" not in p for p in result.places)
+    assert (await db_session.execute(select(OsmBranchCache))).first() is None
+    assert (await db_session.execute(select(OverpassFetchLog))).first() is None
+    assert len(rec.requests) == 1

@@ -164,6 +164,18 @@ class BranchPin(BaseModel):
     max_protein_g: float | None
 
 
+class MapItemsRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    lat: Latitude
+    lng: Longitude
+    radius_km: float = Field(2.0, gt=0, le=MAX_DISTANCE_KM)
+    include_unmatched: bool = True
+    include_pending: bool = False
+    viewport: list[float] | None = Field(None, min_length=4, max_length=4)
+    device_location: bool = False
+
+
 class MapItemsResponse(BaseModel):
     center: dict[str, float]
     radius_km: float

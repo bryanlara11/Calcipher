@@ -25,9 +25,9 @@ class OsmFirstDiscovery:
 
     async def ensure_branches(
         self, session: AsyncSession, lat: float, lng: float, radius_km: float,
-        *, brand: str | None = None, spread_map: bool = False, viewport=None,
+        *, brand: str | None = None, spread_map: bool = False, viewport=None, persist: bool = True,
     ) -> DiscoveryResult:
-        result = await self.osm.ensure_branches(session, lat, lng, radius_km)
+        result = await self.osm.ensure_branches(session, lat, lng, radius_km, persist=persist)
         if result.source != "stale_cache_fallback":
             return result
         if await self.osm.is_covered(session, lat, lng, result.radius_m, fresh_only=False):

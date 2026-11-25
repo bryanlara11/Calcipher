@@ -207,7 +207,7 @@ describe("meal search and cards", () => {
     await userEvent.click(screen.getByRole("button", { name: "Area & filters" }));
     fireEvent.change(screen.getByLabelText("Search radius"), { target: { value: "1500" } });
     await userEvent.click(screen.getByRole("button", { name: "Move test pin" }));
-    await waitFor(() => expect(fetch.mock.calls.some(([url]) => url.includes("map-items") && new URL(url, "http://test").searchParams.get("lat") === "14.590000")).toBe(true));
+    await waitFor(() => expect(fetch.mock.calls.some(([url, options]) => url.includes("map-items") && JSON.parse(options.body).lat === 14.59)).toBe(true));
     const mapRequest = fetch.mock.calls.filter(([url]) => url.includes("map-items")).at(-1);
     await userEvent.click(screen.getByRole("link", { name: "Chat" }));
     await userEvent.type(screen.getByLabelText("Describe what you want to eat"), "KFC under 500 kcal");
@@ -278,10 +278,11 @@ describe("meal search and cards", () => {
     await userEvent.click(screen.getByRole("button", { name: "Search this area" }));
     await waitFor(() => {
       const requests = fetch.mock.calls.filter(([url]) => url.includes("map-items"));
-      const url = new URL(requests.at(-1)[0], "http://test");
-      expect(url.searchParams.get("lat")).toBe("14.590000");
-      expect(url.searchParams.get("lng")).toBe("120.990000");
-      expect(requests.at(-1)[1].headers["X-CalCipher-Map-Provider"]).toBe("osm");
+      const [url, options] = requests.at(-1);
+      expect(url).toBe("/api/v1/map-items"); // coordinates stay out of the URL
+      expect(options.method).toBe("POST");
+      expect(JSON.parse(options.body)).toMatchObject({ lat: 14.59, lng: 120.99, device_location: false });
+      expect(options.headers["X-CalCipher-Map-Provider"]).toBe("osm");
     });
     await userEvent.click(screen.getByRole("button", { name: "List", exact: true }));
     expect(screen.getByText("Restaurant listings are temporarily unavailable.")).toBeTruthy();
@@ -306,8 +307,7 @@ describe("meal search and cards", () => {
     }
     expect(screen.getByText("Synthetic Google branch")).toBeTruthy();
     expect(screen.getByText("Restaurant locations from Google Maps.")).toBeTruthy();
-    const url = new URL(fetch.mock.calls.find(([url]) => url.includes("map-items"))[0], "http://test");
-    expect(fetch.mock.calls.find(([u]) => u === url.pathname + url.search)[1].headers["X-CalCipher-Map-Provider"]).toBe("osm");
+    expect(fetch.mock.calls.find(([url]) => url.includes("map-items"))[1].headers["X-CalCipher-Map-Provider"]).toBe("osm");
   });
   it("requests only catalog matches and excludes location-only places from Nearby", async () => {
     fetch.mockImplementation(async url => response(url.includes("map-config") ? { provider: "osm" } : {
@@ -321,9 +321,9 @@ describe("meal search and cards", () => {
     await userEvent.click(screen.getByRole("link", { name: "Nearby" }));
     await userEvent.click(screen.getByRole("button", { name: "Report test viewport" }));
     await screen.findByText("2 catalog locations nearby");
-    const url = new URL(fetch.mock.calls.find(([url]) => url.includes("map-items"))[0], "http://test");
-    expect(url.searchParams.get("include_unmatched")).toBe("false");
-    expect(url.searchParams.get("include_pending")).toBe("true");
+    const body = JSON.parse(fetch.mock.calls.find(([url]) => url.includes("map-items"))[1].body);
+    expect(body.include_unmatched).toBe(false);
+    expect(body.include_pending).toBe(true);
     await userEvent.click(screen.getByRole("button", { name: "List", exact: true }));
     expect(screen.getByText("Synthetic catalog branch")).toBeTruthy();
     expect(screen.getByText("Synthetic pending branch")).toBeTruthy();

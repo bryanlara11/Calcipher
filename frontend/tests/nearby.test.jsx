@@ -79,6 +79,9 @@ describe("device location on Nearby", () => {
     await waitFor(() => expect(mapRequests()).toHaveLength(2));
     await new Promise(done => setTimeout(done, 500)); // past the request debounce: still one lookup
     expect(mapRequests()).toEqual([{ lat: 14.5785, lng: 120.985 }, expected]);
+    const lookups = fetch.mock.calls.filter(([url]) => url.includes("map-items"));
+    expect(lookups.map(([url]) => url)).toEqual(["/api/v1/map-items", "/api/v1/map-items"]);
+    expect(lookups.map(([, options]) => JSON.parse(options.body).device_location)).toEqual([false, true]);
     expect(locateButton().disabled).toBe(false);
     await screen.findByText("2 catalog locations nearby");
     await userEvent.click(screen.getByRole("button", { name: "List", exact: true }));
@@ -136,6 +139,11 @@ describe("device location on Nearby", () => {
     await userEvent.click(screen.getByRole("link", { name: "Chat" }));
     await userEvent.click(screen.getByRole("link", { name: "Nearby" }));
     expect(map().dataset.lat).toBe("14.5785");
+    // The restored pin searches again on its own (a hidden List-view map reports no viewport),
+    // as an ordinary pin rather than a device location.
+    await waitFor(() => expect(mapRequests().at(-1)).toEqual({ lat: 14.5785, lng: 120.985 }));
+    const last = fetch.mock.calls.filter(([url]) => url.includes("map-items")).at(-1);
+    expect(JSON.parse(last[1].body).device_location).toBe(false);
   });
 });
 
@@ -159,7 +167,8 @@ describe("collapsible restaurant menus", () => {
   it("starts collapsed, opens, closes and reopens from memory", async () => {
     renderList();
     expect(toggle("Alpha").getAttribute("aria-expanded")).toBe("false");
-    expect(toggle("Alpha").textContent).toBe("View menu for Alpha");
+    expect(toggle("Alpha").textContent).toBe("View menu");
+    expect(toggle("Alpha").getAttribute("aria-label")).toBe("View menu for Alpha");
     await userEvent.click(toggle("Alpha"));
     expect(toggle("Alpha").getAttribute("aria-expanded")).toBe("true");
     expect(screen.getByText("Loading menu…")).toBeTruthy();
@@ -170,7 +179,7 @@ describe("collapsible restaurant menus", () => {
     expect(toggle("Alpha").compareDocumentPosition(screen.getByText("Alpha synthetic meal")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     await userEvent.click(toggle("Alpha"));
     expect(screen.queryByText("Alpha synthetic meal")).toBeNull();
-    expect(toggle("Alpha").textContent).toBe("View menu for Alpha");
+    expect(toggle("Alpha").getAttribute("aria-label")).toBe("View menu for Alpha");
     await userEvent.click(toggle("Alpha"));
     expect(screen.getByText("Alpha synthetic meal")).toBeTruthy();
     expect(menus.alpha).toHaveLength(1);

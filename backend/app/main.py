@@ -24,6 +24,7 @@ from app.schemas import (
     BrandItemsResponse,
     ChatRequest,
     ChatResponse,
+    MapItemsRequest,
     MapItemsResponse,
     MealRatingRequest,
 )
@@ -288,6 +289,28 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(404, "Meal is not in the active catalog")
         return summary
 
+    async def find_map_items(
+        session: AsyncSession, rag: HybridRagService, *, lat: float, lng: float, radius_km: float,
+        include_unmatched: bool, include_pending: bool, viewport: list[float] | None, persist: bool = True,
+    ) -> MapItemsResponse:
+        if viewport is not None:
+            south, north, west, east = viewport
+            if not (-90 <= south < north <= 90 and -180 <= west < east <= 180):
+                raise HTTPException(422, "Invalid map viewport")
+        pins, discovery = await rag.map_items(
+            session, lat=lat, lng=lng, radius_km=radius_km, include_unmatched=include_unmatched, viewport=viewport,
+            include_pending=include_pending, persist=persist,
+        )
+        matched = sum(1 for p in pins if p.has_calorie_data)
+        return MapItemsResponse(
+            center={"lat": lat, "lng": lng},
+            radius_km=radius_km,
+            branches=pins,
+            matched_count=matched,
+            unmatched_count=len(pins) - matched,
+            discovery=discovery,
+        )
+
     @app.get("/api/v1/map-items", response_model=MapItemsResponse)
     async def map_items(
         session: SessionDep,
@@ -299,23 +322,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         include_pending: bool = False,
         viewport: Annotated[list[float] | None, Query(min_length=4, max_length=4)] = None,
     ) -> MapItemsResponse:
-        if viewport is not None:
-            south, north, west, east = viewport
-            if not (-90 <= south < north <= 90 and -180 <= west < east <= 180):
-                raise HTTPException(422, "Invalid map viewport")
-        pins, discovery = await rag.map_items(
-            session, lat=lat, lng=lng, radius_km=radius_km, include_unmatched=include_unmatched, viewport=viewport,
-            include_pending=include_pending,
-        )
-        matched = sum(1 for p in pins if p.has_calorie_data)
-        return MapItemsResponse(
-            center={"lat": lat, "lng": lng},
-            radius_km=radius_km,
-            branches=pins,
-            matched_count=matched,
-            unmatched_count=len(pins) - matched,
-            discovery=discovery,
-        )
+        return await find_map_items(session, rag, lat=lat, lng=lng, radius_km=radius_km,
+                                    include_unmatched=include_unmatched, include_pending=include_pending,
+                                    viewport=viewport)
+
+    # The same lookup with coordinates in the body, so they stay out of URLs and proxy/access logs.
+    # device_location=true marks a pin taken from the browser's location; that lookup writes nothing.
+    @app.post("/api/v1/map-items", response_model=MapItemsResponse)
+    async def map_items_from_body(body: MapItemsRequest, session: SessionDep, rag: RagDep) -> MapItemsResponse:
+        return await find_map_items(session, rag, lat=body.lat, lng=body.lng, radius_km=body.radius_km,
+                                    include_unmatched=body.include_unmatched, include_pending=body.include_pending,
+                                    viewport=body.viewport, persist=not body.device_location)
 
     @app.get("/api/v1/brands/{brand_slug}/items", response_model=BrandItemsResponse)
     async def items_for_brand(

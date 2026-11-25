@@ -9,7 +9,8 @@ class FakeOsm:
     def __init__(self, result: DiscoveryResult, covered_by_old_fetch: bool = False):
         self.result, self.covered_by_old_fetch, self.coverage_checks = result, covered_by_old_fetch, []
 
-    async def ensure_branches(self, session, lat, lng, radius_km):
+    async def ensure_branches(self, session, lat, lng, radius_km, *, persist=True):
+        self.persist = persist
         return self.result
 
     async def is_covered(self, session, lat, lng, radius_m, *, fresh_only=True):
@@ -70,3 +71,9 @@ def test_trace_reports_the_provider_that_answered():
     assert _trace(DiscoveryResult("live", False, 2000, provider="google"), wrapper).provider == "google"
     google = GooglePlacesDiscovery(None, None)
     assert _trace(DiscoveryResult("live", False, 2000), google).provider == "google"
+
+
+async def test_device_location_lookup_passes_no_write_to_osm():
+    osm = FakeOsm(DiscoveryResult("live", False, 2000))
+    await OsmFirstDiscovery(osm, FakeGoogle()).ensure_branches(None, 14.58, 120.98, 2.0, persist=False)
+    assert osm.persist is False

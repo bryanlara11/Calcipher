@@ -534,9 +534,11 @@ class HybridRagService:
 
     async def map_items(
         self, session: AsyncSession, *, lat: float, lng: float, radius_km: float, include_unmatched: bool, viewport=None,
-        include_pending: bool = False,
+        include_pending: bool = False, persist: bool = True,
     ) -> tuple[list[BranchPin], DiscoveryTrace]:
         options = {"spread_map": True, "viewport": viewport} if _takes_google_options(self.discovery) else {}
+        if not persist and isinstance(self.discovery, (BranchDiscoveryService, OsmFirstDiscovery)):
+            options["persist"] = False  # Google Places discovery never writes to the database
         discovery = await self.discovery.ensure_branches(session, lat, lng, radius_km, **options)
         if discovery.source == "live" and discovery.places is None:
             await self.brands.refresh(session)

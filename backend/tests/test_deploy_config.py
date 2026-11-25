@@ -39,3 +39,15 @@ def test_access_log_drops_query_strings_with_coordinates():
                                ("10.0.0.1:1", "GET", "/api/v1/map-items?lat=14.601&lng=120.988", "1.1", 200), None)
     StripQueryFromAccessLog().filter(record)
     assert "14.601" not in record.getMessage() and "/api/v1/map-items" in record.getMessage()
+
+
+def test_map_items_body_validates_coverage_radius_and_extra_fields():
+    import pydantic
+    from app.schemas import MapItemsRequest
+    ok = MapItemsRequest(lat=14.601, lng=120.988, radius_km=1, device_location=True)
+    assert ok.device_location and ok.include_pending is False
+    for bad in ({"lat": 35.68, "lng": 139.77}, {"lat": 14.6, "lng": 120.98, "radius_km": 0},
+                {"lat": 14.6, "lng": 120.98, "radius_km": 50}, {"lat": 14.6, "lng": 120.98, "accuracy": 5},
+                {"lat": 14.6, "lng": 120.98, "viewport": [1, 2, 3]}):
+        with pytest.raises(pydantic.ValidationError):
+            MapItemsRequest(**bad)

@@ -13,8 +13,9 @@ const hasWebSource = url => /^https?:\/\//i.test(url || "");
 // One native button for both states. Its visible text stays short; screen readers also hear which
 // restaurant it belongs to, and aria-expanded reports the state. Enter/Space come from <button>.
 export function MenuToggle({ open, controls, name, onToggle, className = "menu-toggle", buttonRef }) {
-  return <button ref={buttonRef} type="button" className={className} aria-expanded={open} aria-controls={controls} onClick={onToggle}>
-    {open ? "Hide menu" : "View menu"}<span className="sr-only"> for {name}</span>
+  const label = open ? "Hide menu" : "View menu";
+  return <button ref={buttonRef} type="button" className={className} aria-label={`${label} for ${name}`} aria-expanded={open} aria-controls={controls} onClick={onToggle}>
+    {label}
   </button>;
 }
 

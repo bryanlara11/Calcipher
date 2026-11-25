@@ -72,6 +72,7 @@ export default function App() {
   function navigate(next) { window.location.hash = `/${next}`; }
   const provider = config?.provider === "google" && browserMapsKey ? "google" : "osm";
   const [location, setLocation] = useState(UP_MANILA);
+  const [pinFromDevice, setPinFromDevice] = useState(false); // pin came from the device's location
   const [viewport, setViewport] = useState(null);
   const [searchViewport, setSearchViewport] = useState(null);
   const [retry, setRetry] = useState(0);
@@ -147,7 +148,7 @@ export default function App() {
     debounce.current = setTimeout(() => {
       if (Date.now() < quotaUntilRef.current) return; // cooling down: don't even ask the backend
       setMapBusy(true);
-      mapItems({ provider, ...location, radiusKm, viewport: searchViewport, includeUnmatched: false, includePending: true, signal: ctrl.signal })
+      mapItems({ provider, ...location, radiusKm, viewport: searchViewport, includeUnmatched: false, includePending: true, deviceLocation: pinFromDevice, signal: ctrl.signal })
         .then((d) => {
           if (ctrl.signal.aborted) return;
           setMapData(d);
@@ -167,7 +168,7 @@ export default function App() {
       ctrl.abort();
       setMapBusy(false);
     };
-  }, [location, radiusKm, searchViewport, retry, page, config, provider, preferences.mapsEnabled]);
+  }, [location, radiusKm, searchViewport, retry, page, config, provider, preferences.mapsEnabled, pinFromDevice]);
 
   const placePin = useCallback((next, nextSearchViewport) => {
     setGeoError(null);
@@ -187,7 +188,6 @@ export default function App() {
   const locateToken = useRef(0);
   const locatingRef = useRef(false);
   const pinBeforeDevice = useRef(null);
-  const [pinFromDevice, setPinFromDevice] = useState(false);
   const locationRef = useRef(location);
   locationRef.current = location;
   const stopLocating = useCallback(() => {
@@ -218,8 +218,9 @@ export default function App() {
     pinBeforeDevice.current = null;
     setPinFromDevice(false);
     setFocus(null);
-    placePin(previous, null);
-  }, [page, placePin, stopLocating]);
+    // Give the restored pin its own search box: a hidden map (List view) can't report one.
+    placePin(previous, radiusViewport(previous, radiusMeters));
+  }, [page, placePin, stopLocating, radiusMeters]);
 
   function applyRadius(meters) {
     if (meters === radiusMeters) return;

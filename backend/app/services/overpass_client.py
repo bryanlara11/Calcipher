@@ -303,15 +303,19 @@ class BranchDiscoveryService:
         return any(circle_contains(c_lat, c_lng, r, lat, lng, radius_m) for c_lat, c_lng, r in rows)
 
     async def ensure_branches(
-        self, session: AsyncSession, lat: float, lng: float, radius_km: float
+        self, session: AsyncSession, lat: float, lng: float, radius_km: float, *, persist: bool = True
     ) -> DiscoveryResult:
+        """persist=False (device-location lookups) reads saved coverage but writes nothing: a live
+        fetch is returned as an in-memory place list instead of being cached or logged."""
         started = time.perf_counter()
         radius_m = max(1, min(round(radius_km * 1000), self.max_radius_m))
-        result = await self._ensure(session, lat, lng, radius_m)
+        result = await self._ensure(session, lat, lng, radius_m, persist)
         result.elapsed_ms = (time.perf_counter() - started) * 1000
         return result
 
-    async def _ensure(self, session: AsyncSession, lat: float, lng: float, radius_m: int) -> DiscoveryResult:
+    async def _ensure(
+        self, session: AsyncSession, lat: float, lng: float, radius_m: int, persist: bool = True
+    ) -> DiscoveryResult:
         if await self.is_covered(session, lat, lng, radius_m):
             return DiscoveryResult("cache", True, radius_m)
         if not self.enabled:
@@ -358,6 +362,11 @@ class BranchDiscoveryService:
                         "last_fetched_at": now,
                     }
                 )
+            if not persist:
+                places = [{k: v for k, v in row.items() if k != "last_fetched_at"} | {"place_id": None, "attributions": None}
+                          for row in rows]
+                matched = sum(1 for r in rows if r["matched_brand_slug"])
+                return DiscoveryResult("live", False, radius_m, len(rows), matched, places=places)
             await upsert_branches(session, rows)
             purged = await purge_seed_rows(session, c_lat, c_lng, fetch_radius) if rows else 0
             session.add(

@@ -39,16 +39,22 @@ export function chat({ message, lat, lng, radiusKm, signal, provider, filters, p
   });
 }
 
-export function mapItems({ lat, lng, radiusKm, viewport, includeUnmatched, includePending = false, signal, provider }) {
-  const params = new URLSearchParams({
-    lat: lat.toFixed(6),
-    lng: lng.toFixed(6),
-    radius_km: String(radiusKm),
-    include_unmatched: String(includeUnmatched),
-    include_pending: String(includePending),
+// Coordinates go in a POST body, not the URL, so they stay out of proxy and access logs.
+// deviceLocation marks a pin from the browser's location; the server then writes nothing.
+export function mapItems({ lat, lng, radiusKm, viewport, includeUnmatched, includePending = false, deviceLocation = false, signal, provider }) {
+  const body = {
+    lat: Number(lat.toFixed(6)),
+    lng: Number(lng.toFixed(6)),
+    radius_km: radiusKm,
+    include_unmatched: Boolean(includeUnmatched),
+    include_pending: Boolean(includePending),
+    device_location: Boolean(deviceLocation),
+    ...(viewport ? { viewport: viewport.split(",").map(Number) } : {}),
+  };
+  return request("/api/v1/map-items", {
+    method: "POST", body: JSON.stringify(body), signal,
+    headers: { "Content-Type": "application/json", "X-CalCipher-Map-Provider": provider ?? "osm" },
   });
-  if (viewport) viewport.split(",").forEach(value => params.append("viewport", value));
-  return request(`/api/v1/map-items?${params}`, { signal, headers: { "X-CalCipher-Map-Provider": provider ?? "osm" } });
 }
 
 export const browserMapsKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY?.trim() ?? "";
