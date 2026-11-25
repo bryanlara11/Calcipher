@@ -6,7 +6,7 @@ import axe from "axe-core";
 import App from "../src/App.jsx";
 import ThemeControl, { useTheme } from "../src/components/ThemeControl.jsx";
 import MealSearch, { buildMealQuery } from "../src/components/MealSearch.jsx";
-import { NutritionPanel } from "../src/components/ChatPanel.jsx";
+import ChatPanel, { MealResults, NutritionPanel } from "../src/components/ChatPanel.jsx";
 import { changeSystemTheme } from "./setup.js";
 import { branchKey, mergeListings } from "../src/components/mapListings.js";
 import { BranchPopup } from "../src/components/MapPopup.jsx";
@@ -14,6 +14,7 @@ import GoalBadge, { matchesNutritionGoals } from "../src/components/GoalBadge.js
 import { FAVORITES_KEY } from "../src/favorites.js";
 import { PLAN_KEY, nutritionTotals } from "../src/mealPlan.js";
 import BrandDirectory, { groupByBrand } from "../src/components/BrandDirectory.jsx";
+import { restaurantCategory, RESTAURANT_CATEGORIES } from "../src/restaurantCategories.js";
 
 vi.mock("../src/components/CalorieMap.jsx", () => ({ default: ({ onViewport, onMove }) => <div role="region" aria-label="Map renderer test stub"><button type="button" onClick={() => onViewport("14.57,14.59,120.97,120.99")}>Report test viewport</button><button type="button" onClick={() => onViewport("14.58,14.60,120.98,121.00")}>Pan test viewport</button><button type="button" onClick={() => onMove({ lat: 14.59, lng: 120.99 })}>Move test pin</button></div> }));
 const response = body => ({ ok: true, json: async () => body });
@@ -31,6 +32,55 @@ const sample = { item_id: "fixture", food_item: "Synthetic test bowl", brand_nam
   calories: 400, protein_g: 20.25, carbs_g: null, fat_g: null, serving_size: "serving size unavailable",
   price_php: null, price_source_url: null, is_verified: false, source_post_url: "urn:synthetic-test",
   poi_name: "Synthetic test branch", distance_km: 0.5, latitude: 14.5785, longitude: 120.985, attributions: [] };
+
+it("sends the heavy-snack shortcut as a complete request", async () => {
+  const send = vi.fn();
+  render(<ChatPanel messages={[]} onSend={send} busy={false} />);
+  await userEvent.click(screen.getByRole("button",{name:"Heavy snack",exact:true}));
+  expect(send).toHaveBeenCalledWith("heavy snack");
+});
+
+it("keeps pizza and fast-food brands in one restaurant category", () => {
+  expect(restaurantCategory({matched_brand_slug:"jollibee"})).toBe("Fast food & pizza");
+  expect(restaurantCategory({matched_brand_slug:"pizza hut"})).toBe("Fast food & pizza");
+  expect(RESTAURANT_CATEGORIES).not.toContain("Pizza");
+});
+
+it("keeps a labelled Settings link in the header", () => {
+  render(<App />);
+  expect(screen.getByRole("link",{name:"Settings",exact:true}).textContent).toContain("Settings");
+});
+
+it("sends the last successful meal context with a chat follow-up", async () => {
+  window.history.replaceState(null,"","/#/chat");
+  const requests=[];
+  fetch.mockImplementation(async (url,options) => {
+    if (url.includes("map-config")) return response({provider:"osm"});
+    requests.push(JSON.parse(options.body));
+    return response({answer:`Synthetic reply ${requests.length}`,results:[],catalog_matches:[],relaxation:{applied:false},
+      inspector:{constraints:{semantic_query:"heavy snack",target_brand:null,max_calories:500,min_protein_g:null,max_price_php:null,max_distance_km:1}}});
+  });
+  render(<App />);
+  await waitFor(()=>expect(screen.getByRole("button",{name:"Heavy snack"}).disabled).toBe(false));
+  await userEvent.click(screen.getByRole("button",{name:"Heavy snack"}));
+  await screen.findByText("Synthetic reply 1");
+  await userEvent.type(screen.getByRole("textbox",{name:"Describe what you want to eat"}),"something lighter");
+  await userEvent.click(screen.getByRole("button",{name:"Send",exact:true}));
+  await screen.findByText("Synthetic reply 2");
+  expect(requests[1].message).toBe("something lighter");
+  expect(requests[1].previous_message).toContain("heavy snack");
+  expect(requests[1].previous_message).toContain("under 500 kcal");
+});
+
+it("shows menu facts without requiring or inventing branch location fields", async () => {
+  const { poi_name, distance_km, latitude, longitude, ...catalogItem } = sample;
+  void poi_name; void distance_km; void latitude; void longitude;
+  render(<MealResults response={{answer:"Synthetic test bowl: 400 kcal.",results:[],catalog_answers:[catalogItem],relaxation:{applied:false}}} />);
+  expect(screen.getByText("Synthetic test bowl: 400 kcal.")).toBeTruthy();
+  await userEvent.click(screen.getByText("View menu sources and details",{exact:true}));
+  expect(screen.getByRole("heading",{name:"Synthetic test bowl"})).toBeTruthy();
+  expect(screen.queryByText("Synthetic test branch")).toBeNull();
+});
 
 describe("appearance", () => {
   it("persists dark and light selections across remounts", async () => {
@@ -112,7 +162,7 @@ describe("meal search and cards", () => {
     expect(screen.queryByLabelText("Map renderer test stub")).toBeNull();
     await userEvent.click(screen.getByRole("link", { name: "Chat" }));
     await userEvent.type(screen.getByLabelText("Describe what you want to eat"), "rice under PHP150");
-    await userEvent.click(screen.getByRole("button", { name: "Search" }));
+    await userEvent.click(screen.getByRole("button", { name: "Send" }));
     await waitFor(() => expect(screen.getByText("Synthetic test bowl")).toBeTruthy());
     const request = fetch.mock.calls.find(([url]) => url.endsWith("/chat"));
     expect(JSON.parse(request[1].body).message).toBe("rice under PHP150");
@@ -160,7 +210,7 @@ describe("meal search and cards", () => {
     const mapRequest = fetch.mock.calls.filter(([url]) => url.includes("map-items")).at(-1);
     await userEvent.click(screen.getByRole("link", { name: "Chat" }));
     await userEvent.type(screen.getByLabelText("Describe what you want to eat"), "KFC under 500 kcal");
-    await userEvent.click(screen.getByRole("button", { name: "Search" }));
+    await userEvent.click(screen.getByRole("button", { name: "Send" }));
     await screen.findByText("Synthetic pending reply");
     const request = fetch.mock.calls.find(([url]) => url.endsWith("/chat"));
     expect(JSON.parse(request[1].body)).toMatchObject({ lat: 14.59, lng: 120.99, radius_km: 1.5 });
@@ -254,7 +304,7 @@ describe("meal search and cards", () => {
     expect(screen.getByText("Synthetic catalog branch")).toBeTruthy();
     expect(screen.getByText("Synthetic pending branch")).toBeTruthy();
     expect(screen.getByText("Synthetic Taft address")).toBeTruthy();
-    expect(screen.getByText(/6 menu records · 6 pending review/)).toBeTruthy();
+    expect(screen.getByText("Menu awaiting review")).toBeTruthy();
     expect(screen.queryByText("Synthetic location-only branch")).toBeNull();
     expect(screen.queryByText("No nutrition yet")).toBeNull();
     await userEvent.click(screen.getByRole("button", { name: "Area & filters" }));
@@ -339,7 +389,8 @@ describe("home, goals and saved restaurants", () => {
   it("opens Home by default and explains how to start a meal search", async () => {
     window.history.replaceState(null, "", "/"); render(<App />);
     expect(screen.getByRole("heading", { name: "Find your next meal." })).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "How it works" })).toBeTruthy();
+    await userEvent.click(screen.getByText("How it works", { exact: true }));
+    expect(screen.getByRole("heading", { name: "Pick a place" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "About menu data" })).toBeTruthy();
     await userEvent.click(screen.getByRole("link", { name: "Find a meal" }));
     expect(screen.getByRole("heading", { name: "Search menus" })).toBeTruthy();

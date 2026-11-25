@@ -6,7 +6,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import CalorieMap from "./components/CalorieMap.jsx";
 import ChatPanel, { MealResults } from "./components/ChatPanel.jsx";
 import RagInspector from "./components/RagInspector.jsx";
-import SplashScreen from "./components/SplashScreen.jsx";
 import { browserMapsKey, chat, mapConfig, mapItems } from "./api/client.js";
 import { BrandLogo, CloseButton, Icon } from "./components/Brand.jsx";
 import { useTheme } from "./components/ThemeControl.jsx";
@@ -124,7 +123,8 @@ export default function App() {
     return () => clearTimeout(t);
   }, [quotaUntil]);
   const [restaurantQuery, setRestaurantQuery] = useState("");
-  const [category, setCategory] = useState("all");
+  const [categorySelection, setCategory] = useState("all");
+  const category = ["Fast food", "Pizza"].includes(categorySelection) ? "Fast food & pizza" : categorySelection;
   const [sortOrder, setSortOrder] = useState("az");
   const catalogPins = useMemo(() => (mapData?.branches ?? EMPTY).filter(pin => pin.has_catalog_data || pin.has_calorie_data), [mapData]);
   const pins = useMemo(() => catalogPins.filter(pin =>
@@ -221,12 +221,21 @@ export default function App() {
     setMessages((m) => [...m, { id: messageId(), role: "user", text }]);
     setBusy(true);
     try {
-      const response = await chat({ provider, message: text, ...location, radiusKm, signal: ctrl.signal, filters });
+      const previous = [...messages].reverse().find(m => m.role === "assistant" && m.requestText && m.searchContext
+        && ["lat", "lng", "radiusKm", "provider"].every(key => m.searchContext[key] === searchContext[key]));
+      const response = await chat({ provider, message: text, ...location, radiusKm, signal: ctrl.signal, filters,
+        previousMessage: fromSearch ? undefined : previous?.requestText });
       if (ctrl.signal.aborted) return;
       setLastChat(response);
       setActiveGoals(response.inspector?.constraints ?? {});
       if (fromSearch) setSearchResponse(response);
-      setMessages((m) => [...m, { id: messageId(), role: "assistant", response, searchContext }]);
+      const context = response.inspector?.constraints;
+      const requestText = context ? [context.semantic_query, context.target_brand,
+        context.max_calories != null && `under ${context.max_calories} kcal`,
+        context.min_protein_g != null && `at least ${context.min_protein_g} g protein`,
+        context.max_price_php != null && `under PHP${context.max_price_php}`,
+        `within ${context.max_distance_km} km`].filter(Boolean).join(" ").slice(0,500) : text;
+      setMessages((m) => [...m, { id: messageId(), role: "assistant", response, searchContext, requestText }]);
       if (response.results[0]) setFocus({ lat: response.results[0].latitude, lng: response.results[0].longitude, t: Date.now() });
     } catch (e) {
       if (ctrl.signal.aborted) return;
@@ -276,13 +285,13 @@ export default function App() {
   const chatDiscoveryIssue = lastChat?.inspector?.discovery?.some(d => d.error || d.source === "disabled");
   return (
     <RatingsContext.Provider value={mealRatings}><MealPlanContext.Provider value={mealPlan}><div className="page-shell">
-      <SplashScreen />
       <a href="#page-content" className="skip-link" onClick={event => { event.preventDefault(); heading.current?.focus(); }}>Skip to content</a>
-      <aside className="nav-rail">
-        <a className="brand-lockup" href="#/home" aria-label="CalCipher home"><BrandLogo decorative /></a>
-        <nav className="page-nav" aria-label="Main navigation">{Object.entries(PAGES).filter(([id]) => id !== "data").map(([id, [label, icon]]) =>
+      <header className="app-header"><div className="app-header-inner">
+        <a className="app-brand" href="#/home" aria-label="CalCipher home"><BrandLogo decorative /></a>
+        <nav className="app-navigation" aria-label="Main navigation">{Object.entries(PAGES).filter(([id]) => !["home", "settings", "data"].includes(id)).map(([id, [label, icon]]) =>
           <a key={id} href={`#/${id}`} aria-current={page === id ? "page" : undefined}><Icon name={icon} size={21} /><span>{label}</span></a>)}</nav>
-      </aside>
+        <a className="settings-shortcut" href="#/settings" aria-label="Settings" title="Settings" aria-current={page === "settings" ? "page" : undefined}><Icon name="sun" size={21} /><span>Settings</span></a>
+      </div></header>
       <div className="page-body">
         <main id="page-content" className={`page-content page-${page}`}>
           {page === "home" && <HomePage headingRef={heading} />}
@@ -291,7 +300,7 @@ export default function App() {
           {page === "search" && <div className="search-layout">
             <section className="search-sheet">
               <h1 ref={heading} tabIndex={-1}>Search menus</h1>
-              <p className="page-lead">Look for a dish, or browse a restaurant’s menu. Nutrition and budget filters are optional.</p>
+              <p className="page-lead">Look up a dish or browse by restaurant.</p>
               <MealSearch savedValues={formValues} onValuesChange={setFormValues} busy={busy || !config} onSearch={(query, filters) => send(query, { fromSearch: true, filters })} />
               <a className="search-location-link" href="#/nearby"><Icon name="pin" size={17} />Choose your search area<Icon name="arrow" size={17} /></a>
             </section>
@@ -303,7 +312,7 @@ export default function App() {
             </section>}
           </div>}
           {page === "nearby" && <section className="nearby-layout">
-            <div className="page-title-row"><div><h1 ref={heading} tabIndex={-1}>Nearby restaurants</h1><p className="page-lead">Locations for brands in our menu database. Pending records are available to browse; recommendations use reviewed records.</p></div><button className="button-secondary" type="button" aria-expanded={filtersOpen} aria-controls="area-controls" onClick={() => setFiltersOpen(v => !v)}><Icon name="filter" size={18} />Area & filters</button></div>
+            <div className="page-title-row"><div><h1 ref={heading} tabIndex={-1}>Nearby restaurants</h1><p className="page-lead">Find a branch, look through its menu or save it for later.</p></div><button className="button-secondary" type="button" aria-expanded={filtersOpen} aria-controls="area-controls" onClick={() => setFiltersOpen(v => !v)}><Icon name="filter" size={18} />Area & filters</button></div>
             {filtersOpen && <div className="area-controls" id="area-controls">
               <div className="radius-control"><div className="radius-heading"><label htmlFor="search-radius">Search radius</label><output htmlFor="search-radius">{formatRadius(previewMeters)}</output></div>
                 <input id="search-radius" type="range" aria-label="Search radius" aria-valuetext={formatRadius(previewMeters)} min={100} max={5000} step={100} value={previewMeters}
@@ -311,12 +320,15 @@ export default function App() {
                   onChange={event => { const meters = event.currentTarget.valueAsNumber; setPreviewMeters(meters); if (!draggingRadius.current) applyRadius(meters); }}
                   onLostPointerCapture={finishRadiusDrag} onBlur={finishRadiusDrag} /><div className="range-limits"><span>100 m</span><span>5 km</span></div></div>
               <button type="button" onClick={useMyLocation} disabled={!preferences.locationEnabled} className="location-button"><Icon name="compass" size={17} />Use my location</button>
+              <div className="nearby-category-controls">
+                <label className="field">Category<select value={category} onChange={event => setCategory(event.target.value)}><option value="all">All categories</option>{RESTAURANT_CATEGORIES.map(value => <option key={value}>{value}</option>)}</select></label>
+                <label className="field">Sort<select value={sortOrder} onChange={event => setSortOrder(event.target.value)}><option value="az">A–Z</option><option value="za">Z–A</option><option value="nearest">Nearest first</option></select></label>
+              </div>
             </div>}
             <div className="nearby-search-tools">
               <label className="field">Search restaurants<input type="search" placeholder="Restaurant or brand name" value={restaurantQuery} onChange={event => setRestaurantQuery(event.target.value)} /></label>
-              <label className="field">Category<select value={category} onChange={event => setCategory(event.target.value)}><option value="all">All categories</option>{RESTAURANT_CATEGORIES.map(value => <option key={value}>{value}</option>)}</select></label>
-              <label className="field">Sort<select value={sortOrder} onChange={event => setSortOrder(event.target.value)}><option value="az">A–Z</option><option value="za">Z–A</option><option value="nearest">Nearest first</option></select></label>
             </div>
+            {category !== "all" && <button className="active-category text-button" type="button" onClick={() => setCategory("all")} aria-label={`Clear ${category} category`}>{category}<Icon name="close" size={14} /></button>}
             <div className="nearby-toolbar"><p role="status">{nearbyStatus}</p><div className="nearby-actions">
               {(viewport !== searchViewport || mapError || discoveryWarning) && <button type="button" disabled={quotaUntil > 0 || mapBusy} className="text-button" onClick={searchVisibleArea}><Icon name="search" size={16} />{viewport !== searchViewport ? "Search this area" : "Retry search"}</button>}
               <div className="view-switch" role="group" aria-label="Nearby view">{["map", "list"].map(view => <button type="button" key={view} disabled={view === "map" && !preferences.mapsEnabled} aria-pressed={effectiveMapView === view} onClick={() => setMapView(view)}>{view === "map" ? "Map" : "List"}</button>)}</div>

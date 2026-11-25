@@ -13,13 +13,33 @@ three brand cards with one nearest branch each; Show more reveals three more. Ma
 distance and a View menu button. Menus expand inside a bounded popup, with resize handling and
 theme styles that outrank Leaflet's late-loaded white defaults. Map errors have a local fallback.
 
-The latest interface pass uses smaller headings, plain copy and a real Crisostomo menu photo on
-Home. Repeated raised panels and the chat assistant emblem were removed. Long names and source
+The latest interface uses a compact top header, with a visible Settings label and five primary
+links (a bottom bar on phones). The logo opens Home. The sidebar and timed splash are gone.
+Home uses a 687px Crisostomo source photo and collapsed guides. Restaurant brands appear in a
+plain list with three initial entries, without monogram placeholders or repeated nested cards.
+Category/sort controls live in Area & filters; Fast food & pizza is one category. Long names and source
 details wrap inside cards; expanded menus in Search, Nearby lists and Favorites use the page's
 scroll instead of cutting through cards in nested scroll boxes. Phone layouts give the restaurant
 count its own row, stack narrow selectors and show meal-plan macro totals as readable rows.
 Map popups keep meal names first; photos stay in the full menu views, and zoom controls do not
 overlap an open popup. The original avocado color, dark appearance and saved meals are preserved.
+
+Source images keep their aspect ratio in bounded previews and offer full-image/source links.
+The small skillet image was replaced on Home by a larger original. No generated food pictures
+or synthetic sharpening was used; source resolution remains the limit.
+
+Chat recognizes heavy/filling and light snacks. Heavy-snack ranking prefers portions around
+300–600 kcal as a soft preference, while all explicit limits stay hard. Named rice/drink bundles
+are excluded from snack requests. This is a browsing heuristic, not a nutrition prescription or
+approval. Light snacks sort by calories ascending. Exact food searches still reject unrelated
+matches. Brand aliases are stripped before food matching.
+
+Explicit calorie/protein/macro/price questions use active catalog records without requiring a
+mapped branch. `catalog_answers` contains CatalogItem objects without invented location fields.
+MenuRecords renders their details and source links. Missing protein/prices are answered plainly.
+Short follow-ups can inherit the previous successful request's food and limits, within the same
+area/provider. New dishes start fresh; Search requests stay independent. This is bounded menu
+conversation, not a general assistant or an ingredient/allergen verification system.
 
 Meal Chat and meal Search show restaurant names first, with details collapsed until expanded.
 Explicit food terms are filtered before vector ranking; banana no longer returns unrelated food.
@@ -85,7 +105,7 @@ item/slide. No specific human-approved IDs have been supplied; do not invent a r
 
 ## Verification and remaining work
 
-316 backend tests and 57 frontend tests cover source scope, exact/relevant retrieval, review
+329 backend tests and 62 frontend tests cover source scope, exact/relevant retrieval, review
 separation, anonymous rating uniqueness/thresholds, favorites, calendar/target persistence,
 settings opt-outs, three-brand lists and accessibility. Lint and production build pass.
 Live API checks: 121 records/21 brands, banana returns no matches, Jollibee under500 returns

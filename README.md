@@ -35,7 +35,7 @@ or higher. Ratings do not verify nutrition values; unrated meals get no badge.
 
 About menu data has its own page, linked only from Home. Settings contains appearance, map display, device-location access and connection controls. Retrieval details stay in the Chat page flow. Light, Dark and System theme choices persist locally.
 
-Verification: **316 backend tests, 57 frontend tests, lint and production build passed**. Live API
+Verification: **329 backend tests, 62 frontend tests, lint and production build passed**. Live API
 checks confirmed 121 active records, 21 brands, zero reviewed records, no archived KFC menu items,
 and exact calorie/budget behavior. Automated Instagram retrieval is still unresolved. There are
 zero checked current PHP prices; 11 active records contain reported protein values.

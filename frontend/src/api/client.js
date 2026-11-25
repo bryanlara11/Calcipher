@@ -30,10 +30,10 @@ async function request(path, options = {}) {
   return body;
 }
 
-export function chat({ message, lat, lng, radiusKm, signal, provider, filters }) {
+export function chat({ message, lat, lng, radiusKm, signal, provider, filters, previousMessage }) {
   return request("/api/v1/chat", {
     method: "POST",
-    body: JSON.stringify({ message, lat, lng, radius_km: radiusKm, ...(filters ? { filters } : {}) }),
+    body: JSON.stringify({ message, lat, lng, radius_km: radiusKm, ...(filters ? { filters } : {}), ...(previousMessage ? { previous_message: previousMessage } : {}) }),
     signal,
     headers: { "Content-Type": "application/json", "X-CalCipher-Map-Provider": provider ?? "osm" },
   });

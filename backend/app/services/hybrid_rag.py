@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import time
 import uuid
 from collections.abc import Sequence
@@ -28,14 +29,15 @@ from app.schemas import (
     RetrievedItem,
     SearchConstraints,
 )
-from app.security import sanitize_user_text, validate_macro_physics
+from app.security import sanitize_user_text, unescape_for_parsing, validate_macro_physics
 from app.services.brand_matcher import BrandRegistry
 from app.services.embedder import Embedder, to_pgvector_literal
 from app.services.generator import GroundedGenerator
 from app.services.overpass_client import EARTH_RADIUS_KM, BranchDiscoveryService, DiscoveryResult, bounding_box
 from app.services.google_places import GooglePlacesDiscovery
 from app.services.query_parser import QueryParser
-from app.services.food_matching import food_pattern
+from app.services.food_matching import food_pattern, question_field, search_order
+from app.services.meal_answers import direct_answer, snack_answer, help_answer
 
 TOP_K = 5
 MAP_PIN_LIMIT = 500
@@ -89,7 +91,12 @@ candidates AS (
 )
 SELECT c.*, COUNT(*) OVER () AS candidate_count
 FROM candidates AS c
-ORDER BY c.cosine_distance ASC NULLS LAST, c.distance_km ASC, c.item_id
+ORDER BY CASE WHEN :sort_order = 'calories_desc' AND :snack_request THEN
+              CASE WHEN c.calories < 300 THEN 300 - c.calories
+                   WHEN c.calories > 600 THEN c.calories - 600 ELSE 0 END END ASC NULLS LAST,
+         CASE WHEN :sort_order = 'calories_desc' THEN c.calories END DESC NULLS LAST,
+         CASE WHEN :sort_order = 'calories_asc' THEN c.calories END ASC NULLS LAST,
+         c.cosine_distance ASC NULLS LAST, c.distance_km ASC, c.item_id
 LIMIT :k
 """
 )
@@ -192,6 +199,8 @@ async def retrieve(
         "k": k,
         "verified": not pending_only,
         "food_pattern": food_pattern(constraints.semantic_query, constraints.target_brand),
+        "sort_order": search_order(constraints.semantic_query),
+        "snack_request": bool(re.search(r"\bsnacks?\b", constraints.semantic_query, re.I)),
     }
     query = RETRIEVAL_SQL
     if places is not None:
@@ -343,6 +352,7 @@ class HybridRagService:
         default_radius_km: float | None = None,
         request_id: str | None = None,
         filters: MealFilters | None = None,
+        previous_message: str | None = None,
     ) -> ChatResponse:
         timings: dict[str, float] = {}
         t0 = time.perf_counter()
@@ -358,14 +368,69 @@ class HybridRagService:
         parse_kwargs = {"default_distance_km": default_radius_km} if default_radius_km else {}
         parsed = await self.parser.parse(sanitized.text, self.brands.matcher, **parse_kwargs)
         constraints = parsed.constraints
+        # Only explicit follow-ups inherit context. A new dish starts a new search.
+        if previous_message:
+            plain = unescape_for_parsing(sanitized.text)
+            is_followup = bool(re.search(r"^(?:and\b|what about\b|how about\b|same\b|(?:(?:something|anything)\s+)?(?:lighter|heavier)\b)|\b(?:it|that)\b", plain.strip(), re.I))
+            if is_followup and food_pattern(constraints.semantic_query, constraints.target_brand) is None:
+                previous, _, _ = self.parser.regex.parse(unescape_for_parsing(sanitize_user_text(previous_message).text), self.brands.matcher,
+                    default_radius_km or constraints.max_distance_km)
+                semantic = previous.semantic_query
+                if search_order(constraints.semantic_query) != "semantic":
+                    semantic = re.sub(r"\b(?:heavy|heavier|hearty|filling|light|lighter|small|smaller|big|larger)\b", " ", semantic, flags=re.I)
+                    semantic += " " + constraints.semantic_query
+                updates = {key:getattr(previous,key) for key in ("target_brand","max_calories","max_price_php","min_protein_g") if getattr(constraints,key) is None}
+                if not re.search(r"\b(?:km|kms|kilometers?|kilometres?|meters?|metres?|walking|walkable)\b", plain, re.I):
+                    updates["max_distance_km"] = previous.max_distance_km
+                constraints = constraints.model_copy(update={**updates,"semantic_query":semantic[:500]})
+                parsed.warnings.append("Follow-up uses the previous meal request")
         if filters is not None:
             constraints = constraints.model_copy(update=filters.model_dump(exclude_none=True))
         validate_macro_physics(constraints)
         t = lap("parse", t0)
 
+        def direct_reply(answer, items=None):
+            timings["total"] = round((time.perf_counter() - t0) * 1000, 2)
+            return ChatResponse(answer=answer, results=[], catalog_answers=items or [],
+                relaxation=RelaxationInfo(final_constraints=constraints),
+                inspector=InspectorTrace(request_id=request_id or str(uuid.uuid4()), sanitized_query=sanitized.text,
+                    injection_flags=sanitized.flags, parser_used=parsed.parser_used, parser_warnings=parsed.warnings,
+                    constraints=constraints, discovery=[], embedder=self.embedder.name, candidate_count=0,
+                    catalog_candidate_count=len(items or []), retrieval_attempts=0,
+                    generator_used="template", timings_ms=timings))
+
+        greeting = help_answer(message)
+        if greeting:
+            return direct_reply(greeting)
+
+        fact = question_field(message)
+        if fact:
+            pattern = food_pattern(constraints.semantic_query, constraints.target_brand)
+            if pattern is None and constraints.target_brand is None:
+                return direct_reply("Which dish or restaurant do you mean? For example: ‘How many calories are in Conti’s Lemon Squares?’")
+            rows = (await session.execute(text("""
+                SELECT id AS item_id, brand_name, food_item, calories, protein_g, carbs_g, fat_g,
+                       serving_size, is_verified, source_post_url, price_php, price_source_url, source_images, provenance
+                FROM nutrition_catalog WHERE is_active
+                  AND (CAST(:pattern AS text) IS NULL OR food_item ~* CAST(:pattern AS text))
+                  AND (CAST(:brand AS text) IS NULL OR brand_slug = :brand)
+                  AND (CAST(:max_cal AS integer) IS NULL OR calories <= :max_cal)
+                  AND (CAST(:protein AS numeric) IS NULL OR protein_g >= :protein)
+                  AND (CAST(:price AS numeric) IS NULL OR (is_verified AND price_source_url IS NOT NULL AND price_php <= :price))
+                ORDER BY lower(food_item), id LIMIT 5
+            """), {"pattern":pattern, "brand":constraints.target_brand, "max_cal":constraints.max_calories,
+                    "protein":constraints.min_protein_g,"price":constraints.max_price_php})).mappings().all()
+            items = [CatalogItem(item_id=str(row["item_id"]), **{key:row[key] for key in ("brand_name","food_item","calories","protein_g",
+                "carbs_g","fat_g","serving_size","is_verified","source_post_url","price_php","price_source_url","source_images")},
+                **_source_evidence(row["provenance"])) for row in rows]
+            return direct_reply(direct_answer(items, fact), items)
+
         requested_food = food_pattern(constraints.semantic_query, constraints.target_brand)
         if requested_food:
-            available = (await session.execute(text("SELECT EXISTS (SELECT 1 FROM nutrition_catalog WHERE is_active AND food_item ~* :pattern)"), {"pattern": requested_food})).scalar_one()
+            available = (await session.execute(text("""SELECT EXISTS (SELECT 1 FROM nutrition_catalog
+                WHERE is_active AND food_item ~* :pattern
+                  AND (CAST(:brand AS text) IS NULL OR brand_slug = :brand))"""),
+                {"pattern": requested_food, "brand": constraints.target_brand})).scalar_one()
             if not available:
                 timings["total"] = round((time.perf_counter() - t0) * 1000, 2)
                 return ChatResponse(
@@ -429,10 +494,15 @@ class HybridRagService:
         )
         if not result.items and not catalog.items and food_pattern(constraints.semantic_query, constraints.target_brand):
             answer = f"No menu items matching “{constraints.semantic_query}” meet your filters in this area. Try another food or browse all brands."
+            if constraints.max_price_php is not None:
+                answer += " Items without a checked price are excluded from budget searches."
         if catalog.items:
             answer = (
                 f"{len(catalog.items)} menu {'item matches' if len(catalog.items) == 1 else 'items match'} your search (pending review). Expand a restaurant to view meals."
             )
+        snack_reply = snack_answer(result.items or catalog.items, constraints.semantic_query, constraints.max_calories)
+        if snack_reply:
+            answer = snack_reply
         lap("generation", t)
         timings["total"] = round((time.perf_counter() - t0) * 1000, 2)
 

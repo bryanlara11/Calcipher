@@ -247,7 +247,9 @@ async def test_no_results_do_not_expand_radius(db_session):
     resp = await make_service().chat(db_session, message="kenny rogers roast chicken within 3 km", lat=UPM_LAT, lng=UPM_LNG)
     assert not resp.relaxation.applied and resp.results == []
     assert resp.relaxation.final_constraints.max_distance_km == 3.0
-    assert len(resp.inspector.discovery) == 0  # absent named food/brand needs no location lookup
+    assert len(resp.inspector.discovery) == 1  # known menu, but its only branch is outside the limit
+    assert resp.inspector.discovery[0].radius_m == 3000
+    assert resp.inspector.retrieval_attempts == 1
 
 
 @pytest.mark.db

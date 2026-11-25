@@ -2,10 +2,10 @@ import catalogMedia from "../catalogMedia.json";
 const SOURCE = "https://www.instagram.com/p/DYUCaaOklAh/";
 const PHOTOS = {
   ...catalogMedia.images,
-  "DYUCaaOklAh_5.jpg": { url: "/media/big-bite-junior-source.webp", alt: "Original menu photo showing Big Bite Junior Hotdog" },
-  "DYUCaaOklAh_4.jpg": { url: "/media/big-bite-cheddar-source.webp", alt: "Original menu photo showing Big Bite Cheddar Cheese Hotdog" },
-  "DYUCaaOklAh_2.jpg": { url: "/media/big-bite-jumbo-source.webp", alt: "Original menu photo showing Big Bite Jumbo Classic Hotdog" },
-  "DYUCaaOklAh_7.jpg": { url: "/media/city-cafe-menu-source.webp", alt: "Original City Cafe coffee menu photo" },
+  "DYUCaaOklAh_5.jpg": { url: "/media/big-bite-junior-source.webp", source: SOURCE, note: "Prices pictured may be older.", alt: "Original menu photo showing Big Bite Junior Hotdog" },
+  "DYUCaaOklAh_4.jpg": { url: "/media/big-bite-cheddar-source.webp", source: SOURCE, note: "Prices pictured may be older.", alt: "Original menu photo showing Big Bite Cheddar Cheese Hotdog" },
+  "DYUCaaOklAh_2.jpg": { url: "/media/big-bite-jumbo-source.webp", source: SOURCE, note: "Prices pictured may be older.", alt: "Original menu photo showing Big Bite Jumbo Classic Hotdog" },
+  "DYUCaaOklAh_7.jpg": { url: "/media/city-cafe-menu-source.webp", source: SOURCE, note: "Prices pictured may be older.", alt: "Original City Cafe coffee menu photo" },
 };
 
 export function brandPhoto(slug) {
@@ -19,9 +19,10 @@ export function brandPhoto(slug) {
 export default function SourcePhoto({ item }) {
   const photo = item.source_images?.map(name => PHOTOS[name]).find(Boolean)
     || (item.source_post_url === "https://www.instagram.com/p/DXjQ6Htkr9h/" && /baked buns/i.test(item.food_item)
-      ? { url: "/media/tim-ho-wan-pork-buns-source.webp", alt: "Source screenshot showing Tim Ho Wan baked buns with BBQ pork" } : null);
+      ? { url: "/media/tim-ho-wan-pork-buns-source.webp", source: item.source_post_url, note: "Original source screenshot.", alt: "Source screenshot showing Tim Ho Wan baked buns with BBQ pork" } : null);
   if (!photo) return null;
-  return <figure className="source-photo"><a href={photo.url} target="_blank" rel="noreferrer"><img src={photo.url} alt={photo.alt} loading="lazy" /></a>
-    <figcaption>{photo.source ? <a href={photo.source} target="_blank" rel="noreferrer">Image source ↗</a> : "Source image"} · Illustration; printed prices may be historical.</figcaption>
+  const [width, height] = catalogMedia.dimensions[photo.url] || [];
+  return <figure className="source-photo"><a href={photo.url} target="_blank" rel="noreferrer" aria-label={`Open full image: ${photo.alt}`}><img src={photo.url} alt={photo.alt} width={width} height={height} loading="lazy" decoding="async" /></a>
+    <figcaption><span><a href={photo.url} target="_blank" rel="noreferrer">View full image ↗</a>{photo.source && <> · <a href={photo.source} target="_blank" rel="noreferrer">Image source</a></>}</span>{photo.note && <span>{photo.note}</span>}</figcaption>
   </figure>;
 }

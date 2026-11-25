@@ -25,8 +25,8 @@ export function groupByBrand(pins) {
 
 function BranchRow({ pin, onLocate, isFavorite, onToggleFavorite }) {
   return <li><button type="button" className="brand-branch-link" onClick={() => onLocate(pin)}>
-    <span><strong>{pin.poi_name}</strong><small>{pin.address_hint || `${pin.latitude.toFixed(5)}, ${pin.longitude.toFixed(5)}`}</small>
-      <small>{pin.catalog_item_count ?? pin.item_count} menu records{pin.pending_item_count > 0 ? ` · ${pin.pending_item_count} pending review` : " · Reviewed"}</small></span>
+    <span><strong>{pin.poi_name}</strong><small>{pin.address_hint || "Street address unavailable"}</small>
+      <small>{pin.has_calorie_data ? "Reviewed items available" : "Menu awaiting review"}</small></span>
     <span className="num">{pin.distance_km.toFixed(2)} km<Icon name="arrow" size={16} /></span>
   </button><FavoriteButton pin={pin} saved={isFavorite(pin)} onToggle={onToggleFavorite} /></li>;
 }
@@ -40,8 +40,8 @@ export default function BrandDirectory({ pins, onLocate, isFavorite, onToggleFav
     const rows = list => <ul className="brand-branch-list">{list.map(pin => <BranchRow key={branchKey(pin)} pin={pin} onLocate={onLocate} isFavorite={isFavorite} onToggleFavorite={onToggleFavorite} />)}</ul>;
     return <article className="brand-group" key={group.key}>
       <header className="brand-group-heading">{photo ? <a href={photo.source} target="_blank" rel="noreferrer" className="brand-photo-link"><img src={photo.url} alt={photo.alt} loading="lazy" /><span>Brand source photo ↗</span></a>
-        : <span className="brand-monogram" aria-hidden="true">{group.name.split(/\s+/).slice(0,2).map(word => word[0]).join("")}</span>}
-        <div><h3>{group.name}</h3><p>{group.pins.length} nearby {group.pins.length === 1 ? "branch" : "branches"} · {sample.catalog_item_count ?? sample.item_count} menu records</p></div>
+        : null}
+        <div><h3>{group.name}</h3><p>{group.pins.length} nearby {group.pins.length === 1 ? "branch" : "branches"} · {sample.catalog_item_count ?? sample.item_count} menu items</p></div>
       </header>
       {rows(group.pins.slice(0, 1))}
       {group.pins.length > 1 && <details className="brand-more"><summary>View {group.pins.length - 1} more {group.pins.length === 2 ? "branch" : "branches"}</summary>{rows(group.pins.slice(1))}</details>}

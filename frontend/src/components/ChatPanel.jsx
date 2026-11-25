@@ -5,13 +5,12 @@ import GoalBadge from "./GoalBadge.jsx";
 import FavoriteButton from "./FavoriteButton.jsx";
 import SourcePhoto from "./SourcePhoto.jsx";
 import AddToPlan from "./AddToPlan.jsx";
+import { MenuRecords } from "./MapPopup.jsx";
 
 const CHIPS = [
+  { label: "Heavy snack", text: "heavy snack" },
   { label: "Under 500 kcal", text: "something filling under 500 kcal" },
-  { label: "30 g+ protein", text: "at least 30g protein" },
-  { label: "Walking distance", text: "chicken within 1 km" },
   { label: "Light snack", text: "light snack under 300 kcal" },
-  { label: "Grilled, high protein", text: "grilled chicken with high protein under 450 kcal" },
 ];
 
 const SOURCE_LABELS = { official: "Brand-published nutrition", community_reported: "Community-reported nutrition", estimated: "Estimated nutrition", unknown: "Source type unavailable" };
@@ -74,6 +73,7 @@ export function MealResults({ response, onLocate, isFavorite, onToggleFavorite }
   const shared = { response, onLocate, isFavorite, onToggleFavorite };
   return <div className="meal-results">
     {response.answer && <p className="result-note">{response.answer}</p>}
+    {response.catalog_answers?.length > 0 && <details className="catalog-answer-details"><summary>View menu sources and details</summary><MenuRecords items={response.catalog_answers} /></details>}
     {response.relaxation.applied && <p className="result-note">{response.relaxation.notice}</p>}
     {response.results.length > 0 && <RestaurantResults items={response.results} {...shared} />}
     {response.catalog_matches?.length > 0 && <section aria-label="Catalog matches pending review"><p className="result-note">Source menus · Pending review</p><RestaurantResults items={response.catalog_matches} preview {...shared} /></section>}
@@ -137,7 +137,7 @@ export default function ChatPanel({ messages, onSend, busy, onLocate, searchCont
             value={draft}
             maxLength={500}
             onChange={(e) => setDraft(e.target.value)}
-            placeholder="e.g. siomai or noodles under 400 kcal"
+            placeholder="Ask about a meal…"
             className="chat-input"
           />
           <button
@@ -145,7 +145,7 @@ export default function ChatPanel({ messages, onSend, busy, onLocate, searchCont
             disabled={busy || !draft.trim()}
             className="button-primary"
           >
-            Search
+            Send
           </button>
         </form>
         <p className="composer-note">Check nutrition and prices against the listed sources.</p>

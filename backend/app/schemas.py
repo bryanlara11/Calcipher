@@ -47,6 +47,7 @@ class ChatRequest(BaseModel):
     lat: Latitude
     lng: Longitude
     filters: MealFilters | None = None
+    previous_message: str | None = Field(None, min_length=1, max_length=MAX_QUERY_LENGTH)
     radius_km: float | None = Field(
         None, gt=0, le=MAX_DISTANCE_KM, description="Default search radius if the message names none"
     )
@@ -136,6 +137,7 @@ class ChatResponse(BaseModel):
     answer: str
     results: list[RetrievedItem]
     catalog_matches: list[RetrievedItem] = Field(default_factory=list)
+    catalog_answers: list[CatalogItem] = Field(default_factory=list)
     relaxation: RelaxationInfo
     inspector: InspectorTrace
 
@@ -190,6 +192,9 @@ class CatalogItem(SourceEvidence):
 class BrandItemsResponse(BaseModel):
     brand_slug: str
     items: list[CatalogItem]
+
+
+ChatResponse.model_rebuild()
 
 
 class ErrorResponse(BaseModel):

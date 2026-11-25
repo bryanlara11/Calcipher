@@ -4,4 +4,6 @@ Fix unrelated food matches such as banana by filtering explicit food terms befor
 
 Expand the pending catalog to 121 items across 21 Instagram-origin brands, adding Crisostomo, CoCo Ichibanya, Dot Coffee and Conti’s. Keep external calorie evidence and attributed internet images separate from Instagram brand origins. Preserve unknown servings/macros/prices and six archived source rows. All-brand browsing makes menus available without inventing branch locations.
 
-Validation: 316 backend tests, 57 frontend tests, lint/build and live source/relevance checks passed, with responsive browser checks. All nutrition records remain pending selected-ID approval; current prices are unverified, and automated Instagram retrieval remains unresolved.
+Validation: 329 backend tests, 62 frontend tests, lint/build and live source/relevance checks passed, with responsive browser checks. All nutrition records remain pending selected-ID approval; current prices are unverified, and automated Instagram retrieval remains unresolved.
+
+The interface now uses a compact header with labelled Settings, a five-link mobile bar and plain brand lists. Fast food and pizza share a category. Source image previews preserve aspect ratio and link to their full size. Chat recognizes heavy/light snacks, supports bounded follow-ups and answers nutrition questions directly from the catalog without fabricating a mapped branch or missing values.

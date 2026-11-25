@@ -26,9 +26,14 @@ export function BrandMenu({ slug, includePending = false, goals }) {
   if (state.loading) return <p className="text-sm text-slate-mute">Loading menu…</p>;
   if (state.error) return <p className="text-sm text-warn">{state.error}</p>;
   if (!state.items.length) return <p className="text-sm text-slate-mute">No menu records available.</p>;
-  return <div className="branch-menu">
-    <ul className="menu-records" aria-label="Menu nutrition records">
-      {state.items.map(item => <li key={item.item_id} className="menu-record">
+  return <div className="branch-menu"><MenuRecords items={state.items} goals={goals} />
+    <p className="branch-availability">Brand nutrition. Item availability at this branch is unconfirmed.</p>
+  </div>;
+}
+
+export function MenuRecords({ items, goals }) {
+  return <ul className="menu-records" aria-label="Menu nutrition records">
+      {items.map(item => <li key={item.item_id} className="menu-record">
         <SourcePhoto item={item} />
         <div className="menu-record-heading">
           <h3>{item.food_item}</h3>
@@ -50,9 +55,7 @@ export function BrandMenu({ slug, includePending = false, goals }) {
           </div>
         </footer>
       </li>)}
-    </ul>
-    <p className="branch-availability">Brand nutrition. Item availability at this branch is unconfirmed.</p>
-  </div>;
+    </ul>;
 }
 
 export function BranchPopup({ pin, goals, isFavorite, onToggleFavorite }) {

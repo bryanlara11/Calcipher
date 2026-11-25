@@ -251,9 +251,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             default_radius_km=body.radius_km,
             filters=body.filters,
             request_id=request.state.request_id,
+            previous_message=body.previous_message,
         )
 
-        await attach_ratings(session, result.results + result.catalog_matches)
+        await attach_ratings(session, result.results + result.catalog_matches + result.catalog_answers)
         return result
 
     @app.post("/api/v1/meal-ratings/{item_id}")

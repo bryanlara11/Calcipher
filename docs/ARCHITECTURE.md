@@ -16,7 +16,7 @@ four stars or higher). Ratings never approve nutrition data. Home uses a short p
 
 Explicit food terms constrain SQL retrieval before semantic ranking. Absent foods return a
 clear no-match response before discovery; exact pending previews precede wider searches.
-316 backend / 57 frontend tests, lint and production build pass. Historical entries below
+329 backend / 62 frontend tests, lint and production build pass. Historical entries below
 record previous states; current behavior and `docs/HANDOFF.md` take precedence.
 
 ## 1. Project Overview & Core Data Reality
