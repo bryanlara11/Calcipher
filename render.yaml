@@ -17,8 +17,9 @@ services:
           property: connectionString
       - key: CORS_ORIGINS
         value: "[]"
+      # Public Overpass mirrors can take ~30 s to stream a 2 km result to a cloud host.
       - key: OVERPASS_TIMEOUT_S
-        value: "15"
+        value: "45"
 
 databases:
   - name: calcipher-db
