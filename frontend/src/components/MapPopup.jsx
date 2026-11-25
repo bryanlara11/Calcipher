@@ -1,6 +1,6 @@
 import MealRating from "./MealRating.jsx";
-import { useEffect, useState } from "react";
-import { brandItems } from "../api/client.js";
+import { useId, useState } from "react";
+import { useBrandMenu } from "../menuCache.js";
 import GoalBadge from "./GoalBadge.jsx";
 import FavoriteButton from "./FavoriteButton.jsx";
 import SourcePhoto from "./SourcePhoto.jsx";
@@ -10,21 +10,18 @@ const SOURCE_LABELS = { official: "Official nutrition", community_reported: "Com
 const grams = value => value == null ? "Unavailable" : `${Number(value).toLocaleString(undefined, { maximumFractionDigits: 2 })} g`;
 const hasWebSource = url => /^https?:\/\//i.test(url || "");
 
-export function BrandMenu({ slug, includePending = false, goals }) {
-  const [state, setState] = useState({ loading: true, items: [], error: null });
-  useEffect(() => {
-    const ctrl = new AbortController();
-    brandItems(slug, { signal: ctrl.signal, includePending })
-      .then(r => {
-        if (!Array.isArray(r.items)) throw new Error("Menu details could not be loaded.");
-        setState({ loading: false, items: r.items, error: null });
-      })
-      .catch(e => e.name !== "AbortError" && setState({ loading: false, items: [], error: e.message }));
-    return () => ctrl.abort();
-  }, [slug, includePending]);
+// One native button for both states. Its visible text stays short; screen readers also hear which
+// restaurant it belongs to, and aria-expanded reports the state. Enter/Space come from <button>.
+export function MenuToggle({ open, controls, name, onToggle, className = "menu-toggle", buttonRef }) {
+  return <button ref={buttonRef} type="button" className={className} aria-expanded={open} aria-controls={controls} onClick={onToggle}>
+    {open ? "Hide menu" : "View menu"}<span className="sr-only"> for {name}</span>
+  </button>;
+}
 
-  if (state.loading) return <p className="text-sm text-slate-mute">Loading menu…</p>;
-  if (state.error) return <p className="text-sm text-warn">{state.error}</p>;
+export function BrandMenu({ slug, includePending = false, goals }) {
+  const state = useBrandMenu(slug, includePending);
+  if (state.loading) return <p className="text-sm text-slate-mute" role="status">Loading menu…</p>;
+  if (state.error) return <p className="text-sm text-warn" role="alert">{state.error}</p>;
   if (!state.items.length) return <p className="text-sm text-slate-mute">No menu records available.</p>;
   return <div className="branch-menu"><MenuRecords items={state.items} goals={goals} />
     <p className="branch-availability">Brand nutrition. Item availability at this branch is unconfirmed.</p>
@@ -60,6 +57,7 @@ export function MenuRecords({ items, goals }) {
 
 export function BranchPopup({ pin, goals, isFavorite, onToggleFavorite }) {
   const [menuOpen, setMenuOpen] = useState(false);
+  const menuId = useId();
   return <div className="branch-popup">
     <div className="branch-heading"><h2 className="branch-name">{pin.poi_name}</h2><FavoriteButton pin={pin} saved={isFavorite?.(pin)} onToggle={onToggleFavorite} /></div>
     <p className="branch-location">{pin.distance_km.toFixed(2)} km away{pin.address_hint ? ` · ${pin.address_hint}` : ""}</p>
@@ -68,8 +66,8 @@ export function BranchPopup({ pin, goals, isFavorite, onToggleFavorite }) {
         {pin.has_calorie_data && <> · reviewed items from <strong className="num">{pin.min_calories} kcal</strong></>}
       </p>
       {pin.pending_item_count > 0 && <p className="branch-review-note">{pin.pending_item_count} pending source review</p>}
-      <button type="button" className="popup-menu-toggle" aria-expanded={menuOpen} onClick={() => setMenuOpen(value => !value)}>{menuOpen ? "Hide menu" : "View menu"}</button>
-      {menuOpen && <BrandMenu slug={pin.matched_brand_slug} includePending={Boolean(pin.has_catalog_data)} goals={goals} />}
+      <MenuToggle open={menuOpen} controls={menuId} name={pin.poi_name} className="popup-menu-toggle" onToggle={() => setMenuOpen(value => !value)} />
+      {menuOpen && <div id={menuId}><BrandMenu slug={pin.matched_brand_slug} includePending={Boolean(pin.has_catalog_data)} goals={goals} /></div>}
     </> : <p className="branch-review-note">No reviewed calorie data is available for this restaurant yet.</p>}
   </div>;
 }

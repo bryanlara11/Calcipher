@@ -15,8 +15,9 @@ import { FAVORITES_KEY } from "../src/favorites.js";
 import { PLAN_KEY, nutritionTotals } from "../src/mealPlan.js";
 import BrandDirectory, { groupByBrand } from "../src/components/BrandDirectory.jsx";
 import { restaurantCategory, RESTAURANT_CATEGORIES } from "../src/restaurantCategories.js";
+import { browserMapsKey } from "../src/api/client.js";
 
-vi.mock("../src/components/CalorieMap.jsx", () => ({ default: ({ onViewport, onMove }) => <div role="region" aria-label="Map renderer test stub"><button type="button" onClick={() => onViewport("14.57,14.59,120.97,120.99")}>Report test viewport</button><button type="button" onClick={() => onViewport("14.58,14.60,120.98,121.00")}>Pan test viewport</button><button type="button" onClick={() => onMove({ lat: 14.59, lng: 120.99 })}>Move test pin</button></div> }));
+vi.mock("../src/components/CalorieMap.jsx", () => ({ default: ({ onViewport, onMove, provider }) => <div role="region" aria-label="Map renderer test stub" data-provider={provider}><button type="button" onClick={() => onViewport("14.57,14.59,120.97,120.99")}>Report test viewport</button><button type="button" onClick={() => onViewport("14.58,14.60,120.98,121.00")}>Pan test viewport</button><button type="button" onClick={() => onMove({ lat: 14.59, lng: 120.99 })}>Move test pin</button></div> }));
 const response = body => ({ ok: true, json: async () => body });
 beforeEach(() => {
   window.history.replaceState(null, "", "/#/search");
@@ -285,6 +286,29 @@ describe("meal search and cards", () => {
     await userEvent.click(screen.getByRole("button", { name: "List", exact: true }));
     expect(screen.getByText("Restaurant listings are temporarily unavailable.")).toBeTruthy();
   });
+  it("shows Google fallback places on a Google map or as a list, always with Google attribution", async () => {
+    fetch.mockImplementation(async url => response(url.includes("map-config") ? { provider: "osm", google_fallback: true } : {
+      branches: [{ osm_type: "google", osm_id: 7, poi_name: "Synthetic Google branch", distance_km: .2, has_calorie_data: false, has_catalog_data: true, catalog_item_count: 6, pending_item_count: 6, latitude: 14.5785, longitude: 120.985 }],
+      discovery: { source: "live", provider: "google", error: null },
+    }));
+    render(<App />);
+    await userEvent.click(screen.getByRole("link", { name: "Nearby" }));
+    await userEvent.click(screen.getByRole("button", { name: "Report test viewport" }));
+    await screen.findByText("1 catalog location nearby");
+    expect(screen.getByText(/^Google Maps locations ·/)).toBeTruthy();
+    const map = screen.queryByRole("region", { name: "Map renderer test stub" });
+    if (browserMapsKey) {
+      expect(map.dataset.provider).toBe("google");
+      await userEvent.click(screen.getByRole("button", { name: "List", exact: true }));
+    } else {
+      expect(map).toBeNull(); // no Google map available: Google data must not sit on the OSM map
+      expect(screen.getByRole("button", { name: "Map", exact: true }).disabled).toBe(true);
+    }
+    expect(screen.getByText("Synthetic Google branch")).toBeTruthy();
+    expect(screen.getByText("Restaurant locations from Google Maps.")).toBeTruthy();
+    const url = new URL(fetch.mock.calls.find(([url]) => url.includes("map-items"))[0], "http://test");
+    expect(fetch.mock.calls.find(([u]) => u === url.pathname + url.search)[1].headers["X-CalCipher-Map-Provider"]).toBe("osm");
+  });
   it("requests only catalog matches and excludes location-only places from Nearby", async () => {
     fetch.mockImplementation(async url => response(url.includes("map-config") ? { provider: "osm" } : {
       branches: [
@@ -304,7 +328,7 @@ describe("meal search and cards", () => {
     expect(screen.getByText("Synthetic catalog branch")).toBeTruthy();
     expect(screen.getByText("Synthetic pending branch")).toBeTruthy();
     expect(screen.getByText("Synthetic Taft address")).toBeTruthy();
-    expect(screen.getByText("Menu awaiting review")).toBeTruthy();
+    expect(screen.getByText("Includes reviewed nutrition")).toBeTruthy();
     expect(screen.queryByText("Synthetic location-only branch")).toBeNull();
     expect(screen.queryByText("No nutrition yet")).toBeNull();
     await userEvent.click(screen.getByRole("button", { name: "Area & filters" }));
@@ -342,7 +366,7 @@ describe("map identities", () => {
       source_post_url: "https://example.test/pending", serving_size: null, source_classification: "community_reported" }] }));
     render(<BranchPopup pin={{ poi_name: "Synthetic pending", distance_km: .2, has_catalog_data: true,
       has_calorie_data: false, matched_brand_slug: "synthetic", brand_name: "Synthetic", catalog_item_count: 1, pending_item_count: 1, item_count: 0 }} />);
-    await userEvent.click(screen.getByRole("button", { name: "View menu" }));
+    await userEvent.click(screen.getByRole("button", { name: "View menu for Synthetic pending" }));
     await screen.findByRole("link", { name: /^Nutrition source/ });
     expect(fetch.mock.calls[0][0]).toContain("include_pending=true");
     expect(screen.getByText("1 pending source review")).toBeTruthy();
@@ -361,7 +385,7 @@ describe("map identities", () => {
       source_post_url: "https://example.test/original" }] }));
     render(<BranchPopup pin={{ poi_name: "Synthetic branch", distance_km: .2, has_calorie_data: true,
       matched_brand_slug: "synthetic", brand_name: "Synthetic", item_count: 1, min_calories: 400 }} />);
-    await userEvent.click(screen.getByRole("button", { name: "View menu" }));
+    await userEvent.click(screen.getByRole("button", { name: "View menu for Synthetic branch" }));
     const source = await screen.findByRole("link", { name: /^Nutrition source/ });
     expect(source.getAttribute("href")).toBe("https://example.test/original");
     expect(screen.getByText(/Community-reported nutrition/)).toBeTruthy();

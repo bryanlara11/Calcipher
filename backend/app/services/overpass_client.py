@@ -372,7 +372,7 @@ class BranchDiscoveryService:
             )
             await session.commit()
             matched = sum(1 for r in rows if r["matched_brand_slug"])
-            logger.info("Overpass fetched %d POIs (%d matched) for cell %s", len(rows), matched, grid_key)
+            logger.info("Overpass fetched %d POIs (%d matched)", len(rows), matched)
             return DiscoveryResult("live", False, radius_m, len(rows), matched, purged)
 
 

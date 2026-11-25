@@ -142,9 +142,23 @@ def _error(status: int, detail: str, code: str, request: Request, headers: dict[
     )
 
 
+class StripQueryFromAccessLog(logging.Filter):
+    """Access logs keep method, path and status but drop query strings, which can carry coordinates."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if isinstance(record.args, tuple) and len(record.args) >= 3 and isinstance(record.args[2], str):
+            args = list(record.args)
+            args[2] = args[2].split("?", 1)[0]
+            record.args = tuple(args)
+        return True
+
+
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or get_settings()
     logging.basicConfig(level=settings.log_level, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    access_log = logging.getLogger("uvicorn.access")
+    if not any(isinstance(f, StripQueryFromAccessLog) for f in access_log.filters):
+        access_log.addFilter(StripQueryFromAccessLog())
 
     app = FastAPI(title="CalCipher API", version="1.0.0", lifespan=lifespan)
     app.state.settings = settings

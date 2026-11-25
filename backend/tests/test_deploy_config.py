@@ -30,3 +30,12 @@ async def test_missing_static_dir_leaves_api_only(tmp_path):
     app = create_app(Settings(_env_file=None, static_dir=tmp_path / "absent"))
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
         assert (await client.get("/")).status_code == 404
+
+
+def test_access_log_drops_query_strings_with_coordinates():
+    import logging
+    from app.main import StripQueryFromAccessLog
+    record = logging.LogRecord("uvicorn.access", logging.INFO, "", 0, '%s - "%s %s HTTP/%s" %d',
+                               ("10.0.0.1:1", "GET", "/api/v1/map-items?lat=14.601&lng=120.988", "1.1", 200), None)
+    StripQueryFromAccessLog().filter(record)
+    assert "14.601" not in record.getMessage() and "/api/v1/map-items" in record.getMessage()
