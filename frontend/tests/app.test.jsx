@@ -108,7 +108,7 @@ describe("meal search and cards", () => {
   it("opens chat, sends a request, and renders API-backed results", async () => {
     fetch.mockImplementation(async url => response(url.includes("map-config") ? { provider: "osm" } : { results: [sample], answer: "Synthetic response", relaxation: { applied: false }, inspector: { generator_used: "template" } }));
     render(<App />);
-    expect(screen.getByRole("heading", { name: "What sounds good?" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Search menus" })).toBeTruthy();
     expect(screen.queryByLabelText("Map renderer test stub")).toBeNull();
     await userEvent.click(screen.getByRole("link", { name: "Chat" }));
     await userEvent.type(screen.getByLabelText("Describe what you want to eat"), "rice under PHP150");
@@ -338,11 +338,11 @@ describe("home, goals and saved restaurants", () => {
     : { branches: [pin, { ...pin, osm_type: "way", poi_name: "Synthetic second branch" }], discovery: { source: "cache", error: null } }));
   it("opens Home by default and explains how to start a meal search", async () => {
     window.history.replaceState(null, "", "/"); render(<App />);
-    expect(screen.getByRole("heading", { name: "Find food that fits your day." })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Find your next meal." })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "How it works" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "About menu data" })).toBeTruthy();
     await userEvent.click(screen.getByRole("link", { name: "Find a meal" }));
-    expect(screen.getByRole("heading", { name: "What sounds good?" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Search menus" })).toBeTruthy();
   });
   it("keeps meal results on Search and shares their goal context with Chat", async () => {
     fetch.mockImplementation(async url => response(url.includes("map-config") ? { provider: "osm" } : {

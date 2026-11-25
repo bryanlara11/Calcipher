@@ -2,7 +2,7 @@ import ThemeControl from "./ThemeControl.jsx";
 
 export default function SettingsPage({ headingRef, appearance, provider, configError, discoveryIssue, onReconnect, preferences = { mapsEnabled: true, locationEnabled: true }, onPreference = () => {} }) {
   return <section className="settings-page">
-    <h1 ref={headingRef} tabIndex={-1}>Settings</h1><p className="page-lead">Make CalCipher work the way you prefer.</p>
+    <h1 ref={headingRef} tabIndex={-1}>Settings</h1><p className="page-lead">Appearance, maps and saved data.</p>
     <div className="settings-list">
       <section className="setting-row"><div><h2>Appearance</h2><p>Use a light or dark background, or follow your device.</p></div><ThemeControl preference={appearance.preference} onChange={appearance.choose} /></section>
       <section className="setting-row"><div><h2>Interactive maps</h2><p>Show the map in Nearby. When off, you can use restaurant lists and menu search.</p></div><label className="setting-toggle"><input type="checkbox" checked={preferences.mapsEnabled} onChange={event => onPreference("mapsEnabled", event.target.checked)} /><span>Show maps</span></label></section>

@@ -29,7 +29,7 @@ export function NutritionPanel({ item, index, onLocate, preview = false, goals, 
     <div className="price-note">{item.price_php == null ? "Price unavailable" : `Source price ₱${item.price_php.toFixed(2)}`}
       {item.price_php != null && <small>Branch prices may vary. {/^https?:\/\//i.test(item.price_source_url || "") && <a className="underline" href={item.price_source_url} target="_blank" rel="noreferrer">Price source</a>}</small>}
     </div>
-    <div className="mt-3 flex items-center justify-between gap-2 text-xs"><button type="button" className="flex min-w-0 items-center gap-1 text-left font-bold text-ube" onClick={() => onLocate(item)}><Icon name="pin" size={14} />{item.poi_name}</button><span className="num shrink-0 text-slate-mute">{item.distance_km.toFixed(2)} km</span><FavoriteButton pin={item} saved={isFavorite?.(item)} onToggle={onToggleFavorite} /></div>
+    <div className="nutrition-branch"><button type="button" className="nutrition-branch-link" onClick={() => onLocate(item)}><Icon name="pin" size={16} /><span>{item.poi_name}</span></button><span className="num text-slate-mute">{item.distance_km.toFixed(2)} km</span><FavoriteButton pin={item} saved={isFavorite?.(item)} onToggle={onToggleFavorite} /></div>
     {item.place_id && <p className="mt-2 text-[10px] text-slate-mute"><a className="underline" target="_blank" rel="noreferrer" href={`https://www.google.com/maps/search/?${new URLSearchParams({ api: "1", query: item.poi_name, query_place_id: item.place_id })}`}>View branch on Google Maps</a>{item.attributions?.map(a => <span key={a.provider}> · {a.provider}</span>)}</p>}
     <MealRating item={item} /><AddToPlan item={item} />
     <p className="verification-note">{item.is_verified ? "Checked against source." : preview ? "Pending review; source values are not approved." : "Unverified; may contain OCR errors."} {/^https?:\/\//i.test(item.nutrition_source_url || item.source_post_url || "") && <a className="underline" href={item.nutrition_source_url || item.source_post_url} target="_blank" rel="noreferrer">Nutrition source</a>} {item.nutrition_source_url && /^https?:\/\//i.test(item.source_post_url || "") && <a className="underline" href={item.source_post_url} target="_blank" rel="noreferrer">Instagram brand post</a>} {item.collected_at && <span>Collected {item.collected_at}. </span>}{item.secondary_source_url !== item.nutrition_source_url && /^https?:\/\//i.test(item.secondary_source_url || "") && <a className="underline" href={item.secondary_source_url} target="_blank" rel="noreferrer">Collection source</a>}</p>
@@ -40,7 +40,7 @@ export function NutritionPanel({ item, index, onLocate, preview = false, goals, 
 function Message({ msg, onLocate, searchContext, isFavorite, onToggleFavorite }) {
   if (msg.role === "user") {
     return (
-      <div className="ml-auto max-w-[85%] rounded-2xl rounded-tr-sm bg-ink px-4 py-3 text-label text-xs">
+      <div className="chat-user-message">
         <p className="whitespace-pre-wrap break-words">{msg.text}</p>
       </div>
     );
@@ -99,7 +99,7 @@ export default function ChatPanel({ messages, onSend, busy, onLocate, searchCont
     <section className="flex h-full min-h-0 flex-col" aria-label="Chat">
       <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-4" aria-live="polite">
         {messages.length === 0 && (
-          <div className="chat-empty"><span className="assistant-mark"><Icon name="leaf" size={24} /></span><h2>Search for a meal</h2><p>Enter a food and any calorie, protein, or budget limits.</p><p className="mt-3">Example: “chicken under 500 kcal and PHP150”.</p></div>
+          <div className="chat-empty"><h2>Search for a meal</h2><p>Try a dish or restaurant name. You can add a calorie, protein or budget limit.</p><p className="mt-3">For example: “chicken under 500 kcal”.</p></div>
         )}
         {messages.map((m, index) => (
           <Message key={`${m.id}-${index}`} msg={m} onLocate={onLocate} searchContext={searchContext} isFavorite={isFavorite} onToggleFavorite={onToggleFavorite} />
@@ -109,7 +109,7 @@ export default function ChatPanel({ messages, onSend, busy, onLocate, searchCont
       </div>
 
       <div className="chat-composer">
-        <div className="-mx-1 mb-3 flex gap-2 overflow-x-auto px-1 pb-1">
+        <div className="chat-suggestions">
           {CHIPS.map((c) => (
             <button
               key={c.label}

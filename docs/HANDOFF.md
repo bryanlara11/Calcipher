@@ -13,6 +13,14 @@ three brand cards with one nearest branch each; Show more reveals three more. Ma
 distance and a View menu button. Menus expand inside a bounded popup, with resize handling and
 theme styles that outrank Leaflet's late-loaded white defaults. Map errors have a local fallback.
 
+The latest interface pass uses smaller headings, plain copy and a real Crisostomo menu photo on
+Home. Repeated raised panels and the chat assistant emblem were removed. Long names and source
+details wrap inside cards; expanded menus in Search, Nearby lists and Favorites use the page's
+scroll instead of cutting through cards in nested scroll boxes. Phone layouts give the restaurant
+count its own row, stack narrow selectors and show meal-plan macro totals as readable rows.
+Map popups keep meal names first; photos stay in the full menu views, and zoom controls do not
+overlap an open popup. The original avocado color, dark appearance and saved meals are preserved.
+
 Meal Chat and meal Search show restaurant names first, with details collapsed until expanded.
 Explicit food terms are filtered before vector ranking; banana no longer returns unrelated food.
 A food absent from the active catalog returns a clear no-match reply before location discovery.

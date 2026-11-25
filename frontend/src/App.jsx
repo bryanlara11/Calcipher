@@ -290,8 +290,8 @@ export default function App() {
           {page === "plan" && <MealPlanPage headingRef={heading} />}
           {page === "search" && <div className="search-layout">
             <section className="search-sheet">
-              <h1 ref={heading} tabIndex={-1}>What sounds good?</h1>
-              <p className="page-lead">Find something to eat nearby. Add nutrition limits or a budget if you have one.</p>
+              <h1 ref={heading} tabIndex={-1}>Search menus</h1>
+              <p className="page-lead">Look for a dish, or browse a restaurant’s menu. Nutrition and budget filters are optional.</p>
               <MealSearch savedValues={formValues} onValuesChange={setFormValues} busy={busy || !config} onSearch={(query, filters) => send(query, { fromSearch: true, filters })} />
               <a className="search-location-link" href="#/nearby"><Icon name="pin" size={17} />Choose your search area<Icon name="arrow" size={17} /></a>
             </section>
