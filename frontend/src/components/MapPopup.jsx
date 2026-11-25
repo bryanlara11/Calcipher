@@ -9,6 +9,7 @@ import AddToPlan from "./AddToPlan.jsx";
 const SOURCE_LABELS = { official: "Official nutrition", community_reported: "Community-reported nutrition", estimated: "Estimated nutrition" };
 const grams = value => value == null ? "Unavailable" : `${Number(value).toLocaleString(undefined, { maximumFractionDigits: 2 })} g`;
 const hasWebSource = url => /^https?:\/\//i.test(url || "");
+const isInstagramPost = url => /^https:\/\/(www\.)?instagram\.com\//i.test(url || "");
 
 // One native button for both states. Its visible text stays short; screen readers also hear which
 // restaurant it belongs to, and aria-expanded reports the state. Enter/Space come from <button>.
@@ -48,7 +49,7 @@ export function MenuRecords({ items, goals }) {
         <footer className="menu-evidence">
           <p>{SOURCE_LABELS[item.source_classification] || "Source classification unavailable"}</p>
           <div>{hasWebSource(item.nutrition_source_url || item.source_post_url) && <a href={item.nutrition_source_url || item.source_post_url} target="_blank" rel="noreferrer">Nutrition source ↗</a>}
-            {item.nutrition_source_url && hasWebSource(item.source_post_url) && <a href={item.source_post_url} target="_blank" rel="noreferrer">Instagram brand post ↗</a>}
+            {item.nutrition_source_url && isInstagramPost(item.source_post_url) && item.source_post_url !== item.nutrition_source_url && <a href={item.source_post_url} target="_blank" rel="noreferrer">Instagram brand post ↗</a>}
             {item.collected_at && <time dateTime={item.collected_at}>Collected {item.collected_at}</time>}
           </div>
         </footer>

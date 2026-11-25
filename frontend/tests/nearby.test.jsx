@@ -278,3 +278,19 @@ describe("automatic location once allowed", () => {
     expect(geo.getCurrentPosition).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("source links", () => {
+  it("labels an official brand source once and never as an Instagram post", async () => {
+    const { MenuRecords } = await import("../src/components/MapPopup.jsx");
+    const official = "https://corporate.kfc.com.ph/nutrition-and-allergen-information/";
+    render(<MenuRecords items={[
+      { ...menuItem("Synthetic official"), source_classification: "official", source_post_url: official, nutrition_source_url: official },
+      { ...menuItem("Synthetic community"), item_id: "community", source_post_url: "https://www.instagram.com/p/synthetic/", nutrition_source_url: "https://example.test/calories" },
+    ]} />);
+    expect(screen.getAllByRole("link", { name: /^Nutrition source/ })).toHaveLength(2);
+    const instagram = screen.getAllByRole("link", { name: /Instagram brand post/ });
+    expect(instagram).toHaveLength(1);
+    expect(instagram[0].getAttribute("href")).toBe("https://www.instagram.com/p/synthetic/");
+    expect(screen.getByText("Official nutrition")).toBeTruthy();
+  });
+});
