@@ -8,7 +8,7 @@ function PreferenceSwitch({ id, label, description, checked, onChange }) {
   </div>;
 }
 
-export default function SettingsPage({ headingRef, appearance, provider, configError, discoveryIssue, onReconnect, preferences = { mapsEnabled: true, locationEnabled: true }, onPreference = () => {} }) {
+export default function SettingsPage({ headingRef, appearance, provider, configError, discoveryIssue, onReconnect, preferences = { mapsEnabled: true, locationEnabled: true, developerTools: false }, onPreference = () => {} }) {
   return <section className="settings-page">
     <h1 ref={headingRef} tabIndex={-1}>Settings</h1><p className="page-lead">Choose your appearance and how Nearby works.</p>
     <section className="settings-group" aria-labelledby="appearance-heading">
@@ -28,6 +28,10 @@ export default function SettingsPage({ headingRef, appearance, provider, configE
         <div><dt>When you search</dt><dd>The selected map area is sent to the restaurant service.</dd></div>
         <div><dt>Meal ratings</dt><dd>Ratings are shared anonymously. One rating per browser per meal can be updated.</dd></div>
       </dl></details>
+    </section>
+    <section className="settings-group" aria-labelledby="advanced-heading">
+      <h2 id="advanced-heading">Advanced</h2>
+      <PreferenceSwitch id="developer-preference" label="Show retrieval details" description="Add a button to Meal chat that shows how each search was understood, filtered and ranked." checked={Boolean(preferences.developerTools)} onChange={value => onPreference("developerTools", value)} />
     </section>
   </section>;
 }

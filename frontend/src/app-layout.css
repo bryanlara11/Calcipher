@@ -116,3 +116,35 @@ html { scroll-padding-top: 110px; }
 @media (min-width: 600px) and (max-width: 760px) {
   .home-hero { grid-template-columns: minmax(0, 1fr) minmax(0, .85fr); gap: 28px; }
 }
+
+/* ---- Design review fixes (Apple HIG: accessibility, layout, color) ---- */
+
+/* Tap targets at least 44px tall (HIG default; 28px is the hard minimum). Disclosure summaries keep
+   their marker, so they get padding instead of flex. */
+.plan-slot-empty a, .home-menu-photo figcaption a { display: inline-flex; align-items: center; min-height: 44px; }
+.home-guide > summary, .home-community > summary, .catalog-brand-browser > summary { min-height: 44px; padding-block: 10px; }
+.home-community > summary { padding-block: 4px; }
+
+/* One meaning per color: green marks things you can tap and status. Plain labels are neutral. */
+.eyebrow { color: rgb(var(--muted)); }
+.price-note { color: rgb(var(--ink)); }
+
+/* Phones: chat fills the space between the top bar and the tab bar, so only the message list
+   scrolls and the composer always sits just above the tabs (it was 44px under the tab bar). */
+@media (max-width: 760px) {
+  .page-shell:has(.page-chat) { display: flex; flex-direction: column; height: 100dvh; }
+  .page-shell:has(.page-chat) .app-header { flex: none; }
+  .page-shell:has(.page-chat) .page-body { flex: 1; min-height: 0; display: flex; }
+  .page-content.page-chat { flex: 1; min-height: 0; width: 100%; display: flex; flex-direction: column; padding-bottom: 8px; }
+  .page-chat .chat-page { flex: 1; min-height: 0; width: 100%; display: flex; flex-direction: column; }
+  .page-chat .chat-page > :not(.chat-page-panel) { flex: none; }
+  .page-chat .chat-page-panel { flex: 1; min-height: 0; height: auto; max-height: none; }
+  .page-chat .chat-page-context { margin-bottom: 10px; }
+}
+
+/* Short phones: give the conversation room. The sources note repeats what each meal card shows,
+   and the starter prompts are only needed before the first question. */
+@media (max-width: 760px) and (max-height: 700px) {
+  .page-chat .composer-note { display: none; }
+  .page-chat .chat-page-panel:has(.chat-user-message) .chat-suggestions { display: none; }
+}

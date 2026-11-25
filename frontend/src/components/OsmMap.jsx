@@ -4,6 +4,7 @@ import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { BranchPopup } from "./MapPopup.jsx";
 import { mergeListings } from "./mapListings.js";
+import RestaurantSheet, { useIsPhone } from "./RestaurantSheet.jsx";
 
 export default function OsmMap({ location, onMove, onViewport, radiusKm, pins, results, focus, goals, isFavorite, onToggleFavorite }) {
   const container = useRef(null);
@@ -13,6 +14,7 @@ export default function OsmMap({ location, onMove, onViewport, radiusKm, pins, r
   const [map, setMap] = useState(null);
   const [popup, setPopup] = useState(null);
   const [tileError, setTileError] = useState(false);
+  const phone = useIsPhone();
   useEffect(() => {
     const instance = L.map(container.current, { scrollWheelZoom: false, minZoom: 6, maxZoom: 19 })
       .setView(initialCenter.current, 15);
@@ -61,15 +63,19 @@ export default function OsmMap({ location, onMove, onViewport, radiusKm, pins, r
         className: `restaurant-pin ${number ? "result-pin" : pin.has_calorie_data ? "has-nutrition" : "no-nutrition"}`,
         html: `<span>${number ?? ""}</span>`, iconSize: [30, 30], iconAnchor: [15, 15],
       });
-      const node = document.createElement("div");
       const marker = L.marker([pin.latitude, pin.longitude], { icon, title: pin.poi_name, bubblingMouseEvents: false }).addTo(layer);
+      if (phone) { // phones: bottom sheet instead of a cramped popup
+        marker.on("click", () => { setPopup({ sheet: true, pin, items }); map.panTo(marker.getLatLng()); });
+        return;
+      }
+      const node = document.createElement("div");
       marker.bindPopup(node, { maxWidth: 300, minWidth: 200, autoPanPadding: [16, 16] });
       marker.on("popupopen", () => setPopup({ node, pin, items, instance: marker.getPopup() }));
     });
     return () => { map.off("popupclose", close); layer.remove(); setPopup(null); };
-  }, [map, pins, results]);
+  }, [map, pins, results, phone]);
   useEffect(() => {
-    if (!popup) return;
+    if (!popup || popup.sheet) return;
     const update = () => { if (liveMap.current && popup.instance.isOpen()) popup.instance.update(); };
     update();
     const observer = typeof ResizeObserver !== "undefined" ? new ResizeObserver(update) : null;
@@ -79,9 +85,14 @@ export default function OsmMap({ location, onMove, onViewport, radiusKm, pins, r
   return <>
     <div ref={container} className="osm-map" role="region" aria-label="Restaurant map. Use arrow keys to pan, plus and minus to zoom." />
     {tileError && <div className="tile-error" role="status">Some map tiles could not load. <button type="button" onClick={() => { setTileError(false); tiles.current?.redraw(); }}>Retry map</button></div>}
-    {popup && createPortal(<>
-      {popup.pin.has_calorie_data !== undefined ? <BranchPopup pin={popup.pin} goals={goals} isFavorite={isFavorite} onToggleFavorite={onToggleFavorite} /> : <strong>{popup.pin.poi_name}</strong>}
-      {popup.pin.has_calorie_data === undefined && popup.items.length > 0 && <details className="popup-results"><summary>Matching meals ({popup.items.length})</summary>{popup.items.map(({ item }) => <p key={item.item_id}>{item.food_item} · {item.calories} kcal</p>)}</details>}
-    </>, popup.node)}
+    {popup && (() => {
+      const content = <>
+        {popup.pin.has_calorie_data !== undefined ? <BranchPopup pin={popup.pin} goals={goals} isFavorite={isFavorite} onToggleFavorite={onToggleFavorite} /> : <strong>{popup.pin.poi_name}</strong>}
+        {popup.pin.has_calorie_data === undefined && popup.items.length > 0 && <details className="popup-results"><summary>Matching meals ({popup.items.length})</summary>{popup.items.map(({ item }) => <p key={item.item_id}>{item.food_item} · {item.calories} kcal</p>)}</details>}
+      </>;
+      return popup.sheet
+        ? <RestaurantSheet title={popup.pin.poi_name} onClose={() => setPopup(null)}>{content}</RestaurantSheet>
+        : createPortal(content, popup.node);
+    })()}
   </>;
 }

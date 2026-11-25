@@ -1,0 +1,30 @@
+/* Restaurant details from a map tap. Phones: a bottom sheet (RestaurantSheet.jsx).
+   Desktop: the map balloon, which must never scroll sideways. */
+
+.restaurant-sheet {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 1300;
+  display: flex; flex-direction: column;
+  max-height: min(72dvh, 620px);
+  padding-bottom: env(safe-area-inset-bottom);
+  background: rgb(var(--surface)); color: rgb(var(--ink));
+  border-top: 1px solid rgb(var(--line)); border-radius: 14px 14px 0 0;
+  box-shadow: 0 -8px 30px #0003;
+  animation: sheet-in .22s ease-out;
+}
+.restaurant-sheet:focus { outline: none; }
+.restaurant-sheet:focus-visible { outline: 2px solid var(--solid); outline-offset: -2px; }
+.restaurant-sheet-handle { position: relative; flex: none; display: flex; justify-content: center; padding: 8px 8px 0; min-height: 44px; touch-action: none; }
+.sheet-grabber { width: 36px; height: 5px; margin-top: 2px; border-radius: 3px; background: rgb(var(--line)); }
+.restaurant-sheet .sheet-close { position: absolute; top: 4px; right: 8px; min-width: 44px; min-height: 44px; }
+/* Only vertical scrolling inside the sheet; long words and addresses wrap. */
+.restaurant-sheet-body { flex: 1; min-height: 0; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; padding: 0 18px 18px; overflow-wrap: anywhere; }
+.restaurant-sheet .branch-popup { width: 100%; max-width: none; max-height: none; overflow: visible; padding-right: 0; }
+.restaurant-sheet .branch-popup .branch-heading { position: static; padding-right: 40px; }
+.restaurant-sheet .branch-popup .menu-records { max-height: none; overflow: visible; }
+.restaurant-sheet .popup-menu-toggle { min-height: 44px; }
+@keyframes sheet-in { from { transform: translateY(24px); opacity: 0; } to { transform: none; opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .restaurant-sheet { animation: none; } }
+
+/* Desktop balloon: wrap instead of scrolling sideways, and never wider than the map allows. */
+.gm-style .gm-style-iw-d { overflow-x: hidden !important; }
+.gm-style .branch-popup { width: min(300px, 100%); max-width: 300px; overflow-x: hidden; overflow-wrap: anywhere; }

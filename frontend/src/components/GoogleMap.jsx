@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { BranchPopup } from "./MapPopup.jsx";
 import { mergeListings } from "./mapListings.js";
+import RestaurantSheet, { useIsPhone } from "./RestaurantSheet.jsx";
 
 const key = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
 let mapsPromise;
@@ -37,6 +38,8 @@ export default function GoogleMap({ location, onMove, onViewport, radiusKm, pins
   const [map, setMap] = useState(null);
   const [popup, setPopup] = useState(null);
   const [error, setError] = useState(null);
+  const phone = useIsPhone();
+  const infoWindow = useRef(null);
 
   useEffect(() => {
     if (!key) return;
@@ -93,7 +96,9 @@ export default function GoogleMap({ location, onMove, onViewport, radiusKm, pins
   useEffect(() => {
     if (!map) return;
     const maps = window.google.maps;
-    const info = new maps.InfoWindow();
+    const info = new maps.InfoWindow({ maxWidth: 320 });
+    infoWindow.current = info;
+    const closed = info.addListener("closeclick", () => setPopup(null));
     const listings = mergeListings(pins, results);
     const markers = Array.from(listings.values(), ({ pin, items }) => {
       const result = items[0];
@@ -105,6 +110,12 @@ export default function GoogleMap({ location, onMove, onViewport, radiusKm, pins
         zIndex: result ? 2 : pin.has_calorie_data ? 1 : 0,
       });
       marker.addListener("click", () => {
+        if (phone) { // phones: bottom sheet instead of a cramped balloon
+          info.close();
+          setPopup({ sheet: true, pin, items });
+          map.panTo(marker.getPosition());
+          return;
+        }
         const node = document.createElement("div");
         info.setContent(node);
         info.open({ map, anchor: marker });
@@ -112,8 +123,26 @@ export default function GoogleMap({ location, onMove, onViewport, radiusKm, pins
       });
       return marker;
     });
-    return () => { info.close(); setPopup(null); markers.forEach(marker => { marker.setMap(null); }); };
-  }, [map, pins, results]);
+    return () => { closed.remove(); info.close(); infoWindow.current = null; setPopup(null); markers.forEach(marker => { marker.setMap(null); }); };
+  }, [map, pins, results, phone]);
+
+  // Google sizes a balloon when it opens, while our card is still empty, which made it too narrow
+  // (the card then scrolled sideways). Re-set the content once rendered and whenever it grows.
+  useEffect(() => {
+    const info = infoWindow.current;
+    if (!popup || popup.sheet || !info) return undefined;
+    let last = "";
+    const refit = () => {
+      const size = `${popup.node.offsetWidth}x${popup.node.offsetHeight}`;
+      if (size === last) return; // setContent re-lays out the node; don't loop on our own resize
+      last = size;
+      info.setContent(popup.node);
+    };
+    const frame = requestAnimationFrame(refit);
+    const observer = typeof ResizeObserver !== "undefined" ? new ResizeObserver(() => requestAnimationFrame(refit)) : null;
+    observer?.observe(popup.node);
+    return () => { cancelAnimationFrame(frame); observer?.disconnect(); };
+  }, [popup]);
 
   return <>
     {/* leave room for the collapsed inspector bar only while it is on screen */}
@@ -125,10 +154,15 @@ export default function GoogleMap({ location, onMove, onViewport, radiusKm, pins
       <p>{error || "Google Maps needs a browser key. Open Settings to check the connection."}</p>
       <a href="#/settings">Open Settings</a>
     </div>}
-    {popup && createPortal(<>
-      {popup.pin.has_calorie_data !== undefined ? <BranchPopup pin={popup.pin} goals={goals} isFavorite={isFavorite} onToggleFavorite={onToggleFavorite} /> : <strong>{popup.pin.poi_name}</strong>}
-      {popup.pin.has_calorie_data === undefined && popup.items.length > 0 && <details className="popup-results"><summary>Matching meals ({popup.items.length})</summary>{popup.items.map(({item}) => <p key={item.item_id}>{item.food_item} · {item.calories} kcal</p>)}</details>}
-      {(popup.pin.attributions || []).map(a => <p key={a.provider}>{a.provider}</p>)}
-    </>, popup.node)}
+    {popup && (() => {
+      const content = <>
+        {popup.pin.has_calorie_data !== undefined ? <BranchPopup pin={popup.pin} goals={goals} isFavorite={isFavorite} onToggleFavorite={onToggleFavorite} /> : <strong>{popup.pin.poi_name}</strong>}
+        {popup.pin.has_calorie_data === undefined && popup.items.length > 0 && <details className="popup-results"><summary>Matching meals ({popup.items.length})</summary>{popup.items.map(({item}) => <p key={item.item_id}>{item.food_item} · {item.calories} kcal</p>)}</details>}
+        {(popup.pin.attributions || []).map(a => <p key={a.provider}>{a.provider}</p>)}
+      </>;
+      return popup.sheet
+        ? <RestaurantSheet title={popup.pin.poi_name} onClose={() => setPopup(null)}>{content}</RestaurantSheet>
+        : createPortal(content, popup.node);
+    })()}
   </>;
 }
