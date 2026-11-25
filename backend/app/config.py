@@ -70,6 +70,8 @@ class Settings(BaseSettings):
         default_factory=lambda: ["http://localhost:5173", "http://127.0.0.1:5173"]
     )
     rate_limit_per_minute: int = Field(30, ge=1, le=10_000)
+    # Built frontend (frontend/dist) to serve from the same origin, for single-service hosting.
+    static_dir: Path | None = None
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
 
     @field_validator("overpass_urls")
@@ -79,6 +81,15 @@ class Settings(BaseSettings):
             if not url.startswith("https://"):
                 raise ValueError(f"Overpass URL must use https: {url!r}")
         return urls
+
+    @field_validator("database_url")
+    @classmethod
+    def _async_driver(cls, url: str) -> str:
+        # Hosts such as Render hand out postgres:// or postgresql:// URLs; the app needs psycopg3.
+        for prefix in ("postgres://", "postgresql://"):
+            if url.startswith(prefix):
+                return "postgresql+psycopg://" + url[len(prefix):]
+        return url
 
     @field_validator("gemini_api_key", "google_places_api_key", mode="before")
     @classmethod

@@ -12,6 +12,7 @@ from fastapi import Depends, FastAPI, HTTPException, Path, Query, Request, Respo
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -300,6 +301,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     ) -> BrandItemsResponse:
         slug = normalize_brand(brand_slug)
         return BrandItemsResponse(brand_slug=slug, items=await attach_ratings(session, await brand_items(session, slug, include_pending=include_pending)))
+
+    # Mounted last so every /api route above wins. The frontend uses hash routing, so no SPA fallback is needed.
+    if settings.static_dir is not None and (settings.static_dir / "index.html").is_file():
+        app.mount("/", StaticFiles(directory=settings.static_dir, html=True), name="frontend")
 
     return app
 
