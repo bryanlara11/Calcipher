@@ -48,10 +48,19 @@ Exact pending matches are shown before widening a search for reviewed recommenda
 Calories, protein, budget and distance limits remain hard constraints. Missing values stay null.
 Retrieval details expand in the Chat page's normal flow and scroll within their own panel.
 
-Settings has appearance, interactive-map and device-location controls, connection status and a
-plain explanation of stored data. Turning maps off unmounts the renderer and uses restaurant
+Settings groups Appearance, Maps & location, and Saved on this device in a single readable
+column. Light/Dark/System buttons show the selected theme; labelled switches control map and
+location requests. Connection status retains Reconnect on error. Saved/shared data details
+expand on demand. Turning maps off unmounts the renderer and uses restaurant
 lists. Disabling location requests disables the location button. Browser permission is still
 required when the user explicitly requests location. Map/location preferences persist locally.
+
+Typography uses shared CSS tokens across all pages: 16px body/controls, 14px supporting notes,
+20px section headings and 32px page titles. Compact mobile navigation and map attribution use
+12px. Matching text roles keep the same size across phone, tablet and laptop. Nutrition values
+use aligned label/value rows, and weekly calendar labels use two-letter weekdays. Thirty-two
+page/viewport checks (320, 390, 768 and 1366px) found no horizontal/container overflow. Theme
+choices and both map/location opt-outs were exercised, then restored to their initial values.
 
 Meal Plan supports daily and weekly views, a date picker, user-entered daily calorie targets,
 progress and known macro totals. Week navigation shows seven selectable dates. Month is disabled

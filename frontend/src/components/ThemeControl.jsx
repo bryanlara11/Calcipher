@@ -34,7 +34,11 @@ export function useTheme() {
   return { preference, theme, choose };
 }
 
-export default function ThemeControl({ preference, onChange }) {
+export default function ThemeControl({ preference, onChange, variant = "select" }) {
+  if (variant === "buttons") return <div className="theme-options" role="group" aria-label="Appearance">
+    {[["light", "Light"], ["dark", "Dark"], ["system", "System"]].map(([value, label]) =>
+      <button key={value} type="button" aria-pressed={preference === value} onClick={() => onChange(value)}>{label}</button>)}
+  </div>;
   return <label className="theme-control"><Icon name="sun" size={17} />
     <span className="sr-only">Appearance</span>
     <select aria-label="Appearance" value={preference} onChange={event => onChange(event.target.value)}>

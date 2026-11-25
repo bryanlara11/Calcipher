@@ -224,7 +224,7 @@ describe("meal search and cards", () => {
     render(<App />);
     await userEvent.type(screen.getByPlaceholderText(/Chicken, noodles/), "rice");
     await userEvent.click(screen.getByRole("link", { name: "Settings" }));
-    expect(screen.getByRole("checkbox", { name: "Show maps" }).checked).toBe(true);
+    expect(screen.getByRole("switch", { name: "Show maps" }).checked).toBe(true);
     expect(screen.queryByPlaceholderText(/Chicken, noodles/)).toBeNull();
     act(() => { window.location.hash = "/search"; window.dispatchEvent(new HashChangeEvent("hashchange")); });
     expect(screen.getByPlaceholderText(/Chicken, noodles/).value).toBe("rice");
@@ -248,7 +248,7 @@ describe("meal search and cards", () => {
     await userEvent.click(screen.getByRole("button", { name: "Reconnect" }));
     await screen.findByText(/OpenStreetMap · Connected/);
     expect(screen.queryByText(/OpenStreetMap · Connection unavailable/)).toBeNull();
-    await userEvent.selectOptions(screen.getByRole("combobox", { name: "Appearance" }), "dark");
+    await userEvent.click(screen.getByRole("button", { name: "Dark", exact: true }));
     expect(document.documentElement.dataset.theme).toBe("dark");
   });
   it("shows one connection notice across repeated failed discovery searches", async () => {
@@ -551,8 +551,8 @@ it("stores the daily target and provides a seven-day calendar with month marked 
 
 it("lets users disable map display and location requests while keeping restaurant lists", async () => {
   window.history.replaceState(null,"","/#/settings"); render(<App />);
-  await userEvent.click(screen.getByRole("checkbox",{name:"Show maps"}));
-  await userEvent.click(screen.getByRole("checkbox",{name:"Allow location requests"}));
+  await userEvent.click(screen.getByRole("switch",{name:"Show maps"}));
+  await userEvent.click(screen.getByRole("switch",{name:"Allow location requests"}));
   await userEvent.click(screen.getByRole("link",{name:"Nearby",exact:true}));
   expect(screen.queryByRole("region",{name:"Map renderer test stub"})).toBeNull();
   expect(screen.getByRole("button",{name:"Map",exact:true}).disabled).toBe(true);

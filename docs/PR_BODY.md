@@ -7,3 +7,5 @@ Expand the pending catalog to 121 items across 21 Instagram-origin brands, addin
 Validation: 329 backend tests, 62 frontend tests, lint/build and live source/relevance checks passed, with responsive browser checks. All nutrition records remain pending selected-ID approval; current prices are unverified, and automated Instagram retrieval remains unresolved.
 
 The interface now uses a compact header with labelled Settings, a five-link mobile bar and plain brand lists. Fast food and pizza share a category. Source image previews preserve aspect ratio and link to their full size. Chat recognizes heavy/light snacks, supports bounded follow-ups and answers nutrition questions directly from the catalog without fabricating a mapped branch or missing values.
+
+Organize Settings into appearance, map/location and saved-data sections with theme buttons and labelled switches. Apply a shared text scale across all pages, align nutrition values and keep narrow calendar labels readable. Verify 32 page/viewport combinations without horizontal overflow; 62 frontend tests, lint and build pass.

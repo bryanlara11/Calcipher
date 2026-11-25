@@ -39,7 +39,7 @@ export default function BrandDirectory({ pins, onLocate, isFavorite, onToggleFav
     const photo = brandPhoto(group.key);
     const rows = list => <ul className="brand-branch-list">{list.map(pin => <BranchRow key={branchKey(pin)} pin={pin} onLocate={onLocate} isFavorite={isFavorite} onToggleFavorite={onToggleFavorite} />)}</ul>;
     return <article className="brand-group" key={group.key}>
-      <header className="brand-group-heading">{photo ? <a href={photo.source} target="_blank" rel="noreferrer" className="brand-photo-link"><img src={photo.url} alt={photo.alt} loading="lazy" /><span>Brand source photo ↗</span></a>
+      <header className="brand-group-heading">{photo ? <a href={photo.source} target="_blank" rel="noreferrer" className="brand-photo-link"><img src={photo.url} alt={photo.alt} loading="lazy" /><span>Source photo ↗</span></a>
         : null}
         <div><h3>{group.name}</h3><p>{group.pins.length} nearby {group.pins.length === 1 ? "branch" : "branches"} · {sample.catalog_item_count ?? sample.item_count} menu items</p></div>
       </header>
