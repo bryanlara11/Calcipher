@@ -58,11 +58,10 @@ def test_bounding_box_encloses_circle():
         assert min_lat <= lat2 <= max_lat and min_lng <= lng2 <= max_lng
 
 
-def test_relaxation_ladder_order():
-    steps = relaxation_ladder(SearchConstraints(max_calories=500, max_distance_km=3.0))
-    assert [s.max_calories for _, s in steps] == [575, 500, 575]
-    assert [s.max_distance_km for _, s in steps] == [3.0, 5.0, 5.0]
-    assert relaxation_ladder(SearchConstraints(max_distance_km=6.0)) == []
+def test_explicit_constraints_never_relax():
+    c = SearchConstraints(max_calories=500, min_protein_g=20, max_price_php=150, max_distance_km=1)
+    assert relaxation_ladder(c) == []
+    assert c.max_calories == 500 and c.max_price_php == 150 and c.max_distance_km == 1
 
 
 def test_vector_literal_validation():
@@ -233,26 +232,24 @@ async def test_chat_pipeline_grounded_answer(db_session):
 
 
 @pytest.mark.db
-async def test_relaxation_raises_calorie_limit_by_15_percent(db_session):
+async def test_no_results_do_not_raise_calorie_limit(db_session):
     await _fixture_world(db_session)
-    # Nearest items: 280 kcal is the cheapest, so <= 250 fails and 250*1.15 = 288 succeeds.
     resp = await make_service().chat(db_session, message="anything under 250 kcal", lat=UPM_LAT, lng=UPM_LNG)
-    assert resp.relaxation.applied
-    assert resp.relaxation.final_constraints.max_calories == 288
-    assert [r.food_item for r in resp.results] == ["Yumburger"]
-    assert resp.answer.startswith("No nearby mapped restaurant matched")
-    assert "288 kcal" in resp.answer
+    assert not resp.relaxation.applied
+    assert resp.relaxation.final_constraints.max_calories == 250
+    assert resp.results == []
+    assert resp.inspector.retrieval_attempts == 1
 
 
 @pytest.mark.db
-async def test_relaxation_expands_radius_to_5km(db_session):
+async def test_no_results_do_not_expand_radius(db_session):
     await _fixture_world(db_session)
-    resp = await make_service().chat(db_session, message="kenny rogers roast chicken", lat=UPM_LAT, lng=UPM_LNG)
-    assert resp.relaxation.applied
-    assert resp.relaxation.final_constraints.max_distance_km == 5.0
-    assert resp.results[0].poi_name == "Kenny Rogers Malate"
-    assert resp.results[0].distance_km == pytest.approx(4.5, abs=1e-3)
-    assert len(resp.inspector.discovery) == 2  # a second discovery pass for the wider radius
+    resp = await make_service().chat(db_session, message="kenny rogers roast chicken within 3 km", lat=UPM_LAT, lng=UPM_LNG)
+    assert not resp.relaxation.applied and resp.results == []
+    assert resp.relaxation.final_constraints.max_distance_km == 3.0
+    assert len(resp.inspector.discovery) == 1  # known menu, but its only branch is outside the limit
+    assert resp.inspector.discovery[0].radius_m == 3000
+    assert resp.inspector.retrieval_attempts == 1
 
 
 @pytest.mark.db
@@ -261,7 +258,7 @@ async def test_no_results_even_after_relaxation(db_session):
     resp = await make_service().chat(db_session, message="under 100 kcal", lat=UPM_LAT, lng=UPM_LNG)
     assert resp.results == [] and not resp.relaxation.applied
     assert "couldn't find" in resp.answer
-    assert resp.inspector.retrieval_attempts == 4
+    assert resp.inspector.retrieval_attempts == 1
 
 
 @pytest.mark.db

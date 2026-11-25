@@ -1,11 +1,13 @@
 const SOURCE_TEXT = {
-  live: "Google Places",
-  cache: "Recent Google Places result (no new call)",
+  live: "Live discovery",
+  cache: "Cached result (no new call)",
+  stale_cache_fallback: "Cached result; live discovery unavailable",
+  disabled: "Discovery disabled",
 };
 
 function Row({ k, children }) {
   return (
-    <div className="flex justify-between gap-4 border-t border-slate-line py-1 first:border-t-0">
+    <div className="inspector-row">
       <dt className="text-slate-mute">{k}</dt>
       <dd className="num text-right font-semibold">{children}</dd>
     </div>
@@ -15,8 +17,9 @@ function Row({ k, children }) {
 function Discovery({ d, title }) {
   return (
     <div>
-      <h4 className="mb-1 font-bold">{title}</h4>
+      <h2 className="mb-1 font-bold">{title}</h2>
       <dl className="text-sm">
+        <Row k="Provider">{d.provider === "osm" ? "OpenStreetMap" : d.provider === "google" ? "Google Places" : "Unknown"}</Row>
         <Row k="Source">{SOURCE_TEXT[d.source] ?? d.source}</Row>
         <Row k="Radius">{(d.radius_m / 1000).toFixed(1)} km</Row>
         <Row k="POIs fetched / matched">
@@ -33,10 +36,10 @@ function Discovery({ d, title }) {
 function Timings({ timings }) {
   const stages = ["parse", "discovery", "embed", "retrieval", "generation"].filter((s) => s in timings);
   const total = timings.total || stages.reduce((a, s) => a + timings[s], 0) || 1;
-  const colors = { parse: "#5B2A86", discovery: "#F2A900", embed: "#18202B", retrieval: "#7D8792", generation: "#C9D0D7" };
+  const colors = { parse: "var(--forest)", discovery: "var(--mustard)", embed: "var(--coral)", retrieval: "var(--olive)", generation: "var(--tomato)" };
   return (
     <div>
-      <h4 className="mb-1 font-bold">Stage timings ({total.toFixed(0)} ms)</h4>
+      <h2 className="mb-1 font-bold">Stage timings ({total.toFixed(0)} ms)</h2>
       <div className="flex h-3 overflow-hidden rounded-sm border border-ink" role="img" aria-label="Stage timing breakdown">
         {stages.map((s) => (
           <div key={s} style={{ width: `${(timings[s] / total) * 100}%`, background: colors[s] }} />
@@ -59,9 +62,7 @@ export default function RagInspector({ open, onToggle, onClose, chat, map }) {
   const c = insp?.constraints;
   return (
     <aside
-      className={`absolute inset-x-0 bottom-0 z-[1000] border-t-2 border-ink bg-label transition-transform duration-300 ${
-        open ? "translate-y-0" : "translate-y-[calc(100%-2.75rem)]"
-      }`}
+      className="retrieval-inspector"
       aria-label="Retrieval inspector"
     >
       <div className="flex h-11 items-center pr-2">
@@ -73,7 +74,7 @@ export default function RagInspector({ open, onToggle, onClose, chat, map }) {
         >
           <span className="truncate">Retrieval inspector</span>
           <span className="shrink-0 text-sm font-normal text-slate-mute">
-            {insp ? `${insp.candidate_count} candidates, ${insp.timings_ms.total?.toFixed(0)} ms` : "No search yet"}
+            {insp ? `${insp.candidate_count} approved, ${insp.catalog_candidate_count ?? 0} pending, ${insp.timings_ms.total?.toFixed(0)} ms` : "No search yet"}
             <span aria-hidden="true" className="ml-2 inline-block">{open ? "▾" : "▴"}</span>
           </span>
         </button>
@@ -90,8 +91,8 @@ export default function RagInspector({ open, onToggle, onClose, chat, map }) {
         )}
       </div>
 
-      <div className="grid max-h-[26vh] gap-5 lg:max-h-[45vh] overflow-y-auto px-4 pb-4 sm:grid-cols-2 lg:grid-cols-3">
-        {map && <Discovery d={map.discovery} title={`Map layer (${map.matched_count} with data, ${map.unmatched_count} without)`} />}
+      <div hidden={!open} className="inspector-content">
+        {map && <Discovery d={map.discovery} title={`Map layer (${map.matched_count} reviewed-data pins, ${map.unmatched_count} other pins)`} />}
 
         {insp ? (
           <>
@@ -99,9 +100,10 @@ export default function RagInspector({ open, onToggle, onClose, chat, map }) {
               <Discovery key={i} d={d} title={i === 0 ? "Chat: restaurant discovery" : "Chat: widened discovery"} />
             ))}
             <div>
-              <h4 className="mb-1 font-bold">Parsed constraints ({insp.parser_used})</h4>
+              <h2 className="mb-1 font-bold">Parsed constraints ({insp.parser_used})</h2>
               <dl className="text-sm">
                 <Row k="Max calories">{c.max_calories ?? "none"}</Row>
+                <Row k="Max price (PHP)">{c.max_price_php ?? "none"}</Row>
                 <Row k="Min protein">{c.min_protein_g != null ? `${c.min_protein_g} g` : "none"}</Row>
                 <Row k="Max distance">{c.max_distance_km} km</Row>
                 <Row k="Brand">{c.target_brand ?? "any"}</Row>
@@ -114,12 +116,13 @@ export default function RagInspector({ open, onToggle, onClose, chat, map }) {
               )}
             </div>
             <div>
-              <h4 className="mb-1 font-bold">Hybrid retrieval</h4>
+              <h2 className="mb-1 font-bold">Hybrid retrieval</h2>
               <dl className="text-sm">
-                <Row k="Rows passing SQL filters">{insp.candidate_count}</Row>
+                <Row k="Approved matches">{insp.candidate_count}</Row>
+                <Row k="Pending catalog matches">{insp.catalog_candidate_count ?? 0}</Row>
                 <Row k="Attempts (incl. relaxation)">{insp.retrieval_attempts}</Row>
                 <Row k="Embedder">{insp.embedder}</Row>
-                <Row k="Answer written by">{insp.generator_used === "llm" ? "Gemini (grounded)" : "Template"}</Row>
+                <Row k="Recommendation rendering">{insp.generator_used === "llm" ? "Stored facts + Gemini selection" : "Stored facts template"}</Row>
                 <Row k="Injection flags">{insp.injection_flags.length ? insp.injection_flags.join(", ") : "none"}</Row>
               </dl>
               {chat.results.length > 0 && (

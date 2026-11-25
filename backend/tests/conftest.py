@@ -104,7 +104,7 @@ async def db_engine(pg_url: str) -> AsyncIterator[AsyncEngine]:
     if not _SCHEMA_READY:
         _SCHEMA_READY.update(await init_db(engine))
     async with engine.begin() as conn:
-        await conn.execute(text("TRUNCATE nutrition_catalog, osm_branch_cache, overpass_fetch_log"))
+        await conn.execute(text("TRUNCATE meal_ratings, nutrition_catalog, osm_branch_cache, overpass_fetch_log"))
     yield engine
     await engine.dispose()
 
@@ -132,6 +132,7 @@ async def add_item(
     fat_g: float | None = None,
     serving_size: str = "1 serving",
     embedder: HashingEmbedder | None = None,
+    verified: bool = True,
 ) -> None:
     ctx = build_context_string(brand_name, food_item, serving_size, calories, protein_g, carbs_g, fat_g)
     vec = (embedder or HashingEmbedder()).embed_one(ctx)
@@ -139,7 +140,7 @@ async def add_item(
         insert(NutritionCatalog).values(
             brand_name=brand_name, brand_slug=brand_slug, food_item=food_item, calories=calories,
             protein_g=protein_g, carbs_g=carbs_g, fat_g=fat_g, serving_size=serving_size,
-            context_string=ctx, embedding=vec,
+            context_string=ctx, embedding=vec, is_verified=verified,
         )
     )
     await session.commit()

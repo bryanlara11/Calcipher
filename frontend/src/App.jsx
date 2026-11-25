@@ -1,40 +1,75 @@
+import { RatingsContext, useMealRatings } from "./ratings.js";
+import CatalogBrands from "./components/CatalogBrands.jsx";
+import { usePreferences } from "./preferences.js";
+import { restaurantCategory, RESTAURANT_CATEGORIES } from "./restaurantCategories.js";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import CalorieMap from "./components/CalorieMap.jsx";
-import ChatPanel from "./components/ChatPanel.jsx";
+import ChatPanel, { MealResults } from "./components/ChatPanel.jsx";
 import RagInspector from "./components/RagInspector.jsx";
-import SplashScreen from "./components/SplashScreen.jsx";
-import { chat, mapItems } from "./api/client.js";
+import { browserMapsKey, chat, mapConfig, mapItems } from "./api/client.js";
+import { BrandLogo, CloseButton, Icon } from "./components/Brand.jsx";
+import { useTheme } from "./components/ThemeControl.jsx";
+import MealSearch from "./components/MealSearch.jsx";
+import SettingsPage from "./components/SettingsPage.jsx";
+import HomePage from "./components/HomePage.jsx";
+import FavoritesPage from "./components/FavoritesPage.jsx";
+import BrandDirectory from "./components/BrandDirectory.jsx";
+import { useFavorites } from "./favorites.js";
+import MenuDataPage from "./components/MenuDataPage.jsx";
+import MealPlanPage from "./components/MealPlanPage.jsx";
+import { MealPlanContext, useMealPlan } from "./mealPlan.js";
 
+const PAGES = { home: ["Home", "home"], search: ["Search", "search"], nearby: ["Nearby", "pin"], chat: ["Chat", "chat"], plan: ["Meal plan", "calendar"], favorites: ["Favorites", "heart"], settings: ["Settings", "sun"], data: ["About menu data", "info"] };
+function currentPage() { const page = window.location.hash.slice(2); return PAGES[page] ? page : "home"; }
 const UP_MANILA = { lat: 14.5785, lng: 120.985 };
 const EMPTY = [];
 const formatRadius = meters => meters < 1000 ? `${meters} m` : `${meters / 1000} km`;
 const inPhilippines = ({ lat, lng }) => lat >= 4.5 && lat <= 21.5 && lng >= 116 && lng <= 127;
 
-let nextId = 1;
-
-function CloseButton({ label, onClick, className = "" }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-label={label}
-      title={label}
-      className={`grid h-7 w-7 shrink-0 place-items-center rounded text-lg leading-none text-ink hover:bg-slate-map ${className}`}
-    >
-      <span aria-hidden="true">×</span>
-    </button>
-  );
-}
-
-function ChatIcon() {
-  return (
-    <svg aria-hidden="true" viewBox="0 0 20 20" className="h-4 w-4" fill="currentColor">
-      <path d="M3 4.5A2.5 2.5 0 0 1 5.5 2h9A2.5 2.5 0 0 1 17 4.5v6a2.5 2.5 0 0 1-2.5 2.5H9l-4 3.5V13h.5-1A2.5 2.5 0 0 1 3 10.5z" />
-    </svg>
-  );
-}
+const messageId = () => globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}`;
 
 export default function App() {
+  const appearance = useTheme();
+  const [preferences, setPreference] = usePreferences();
+  const mealPlan = useMealPlan();
+  const mealRatings = useMealRatings();
+  const { favorites, isFavorite, toggleFavorite, storageUnavailable } = useFavorites();
+  const [page, setPage] = useState(currentPage);
+  const [config, setConfig] = useState(null);
+  const [configError, setConfigError] = useState(null);
+  const [configRetry, setConfigRetry] = useState(0);
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [mapView, setMapView] = useState("map");
+  const effectiveMapView = preferences.mapsEnabled ? mapView : "list";
+  const [formValues, setFormValues] = useState({ food: "", calories: "", protein: "", budget: "" });
+  const [searchResponse, setSearchResponse] = useState(null);
+  const [searchError, setSearchError] = useState(null);
+  const [searchStarted, setSearchStarted] = useState(false);
+  const [activeGoals, setActiveGoals] = useState({});
+  const searchResultsRef = useRef(null);
+  useEffect(() => {
+    if (searchResponse || searchError) searchResultsRef.current?.scrollIntoView?.({ behavior: "smooth", block: "start" });
+  }, [searchResponse, searchError]);
+  const heading = useRef(null);
+  useEffect(() => {
+    const update = () => { setPage(currentPage()); };
+    window.addEventListener("hashchange", update);
+    return () => window.removeEventListener("hashchange", update);
+  }, []);
+  useEffect(() => {
+    document.title = `${PAGES[page][0]} · CalCipher`;
+    window.scrollTo(0, 0);
+    heading.current?.focus({ preventScroll: true });
+  }, [page]);
+  useEffect(() => {
+    const ctrl = new AbortController();
+    mapConfig({ signal: ctrl.signal }).then(value => { setConfig(value); setConfigError(null); }).catch(error => {
+      if (error.name !== "AbortError") { setConfig({ provider: "osm" }); setConfigError(error.message); }
+    });
+    return () => ctrl.abort();
+  }, [configRetry]);
+  function navigate(next) { window.location.hash = `/${next}`; }
+  const provider = config?.provider === "google" && browserMapsKey ? "google" : "osm";
   const [location, setLocation] = useState(UP_MANILA);
   const [viewport, setViewport] = useState(null);
   const [searchViewport, setSearchViewport] = useState(null);
@@ -43,22 +78,39 @@ export default function App() {
     setViewport(bounds);
     setSearchViewport(current => current ?? bounds);
   }, []);
-  const [radiusMeters, setRadiusMeters] = useState(100);
-  const [previewMeters, setPreviewMeters] = useState(100);
+  const [radiusMeters, setRadiusMeters] = useState(1000);
+  const [previewMeters, setPreviewMeters] = useState(1000);
   const draggingRadius = useRef(false);
   const radiusKm = radiusMeters / 1000;
-  const [verifiedOnly, setVerifiedOnly] = useState(false);
   const [mapData, setMapData] = useState(null);
+  const [mapBusy, setMapBusy] = useState(false);
   const [mapError, setMapError] = useState(null);
   const [mapErrorDismissed, setMapErrorDismissed] = useState(false);
-  const [chatOpen, setChatOpen] = useState(false);
-  const [showInspector, setShowInspector] = useState(true);
+  const [showInspector, setShowInspector] = useState(false);
   const [messages, setMessages] = useState([]);
   const [lastChat, setLastChat] = useState(null);
   const [busy, setBusy] = useState(false);
+  const chatRequest = useRef(null);
+  const cancelSearch = useCallback(() => {
+    if (!chatRequest.current) return;
+    chatRequest.current.abort();
+    chatRequest.current = null;
+    setBusy(false);
+    setMessages(m => [...m, { id: messageId(), role: "error", title: "Search area changed", text: "Search again to use your new location or radius." }]);
+  }, []);
+  useEffect(() => () => chatRequest.current?.abort(), []);
   const [focus, setFocus] = useState(null);
   const [inspectorOpen, setInspectorOpen] = useState(false);
   const [geoError, setGeoError] = useState(null);
+  useEffect(() => {
+    function escape(event) {
+      if (event.key !== "Escape") return;
+      if (showInspector) { setShowInspector(false); setInspectorOpen(false); }
+      else setFiltersOpen(false);
+    }
+    window.addEventListener("keydown", escape);
+    return () => window.removeEventListener("keydown", escape);
+  }, [showInspector]);
   const debounce = useRef();
   // While Google Places is cooling down (429), skip map requests entirely. Nothing refetches
   // automatically when it ends; the next pin move, radius change or Retry does.
@@ -70,53 +122,68 @@ export default function App() {
     const t = setTimeout(() => setQuotaUntil(0), Math.max(0, quotaUntil - Date.now()));
     return () => clearTimeout(t);
   }, [quotaUntil]);
-  const pins = useMemo(() => {
-    const all = mapData?.branches ?? EMPTY;
-    return verifiedOnly ? all.filter(pin => pin.has_calorie_data) : all;
-  }, [mapData, verifiedOnly]);
+  const [restaurantQuery, setRestaurantQuery] = useState("");
+  const [categorySelection, setCategory] = useState("all");
+  const category = ["Fast food", "Pizza"].includes(categorySelection) ? "Fast food & pizza" : categorySelection;
+  const [sortOrder, setSortOrder] = useState("az");
+  const catalogPins = useMemo(() => (mapData?.branches ?? EMPTY).filter(pin => pin.has_catalog_data || pin.has_calorie_data), [mapData]);
+  const pins = useMemo(() => catalogPins.filter(pin =>
+    (category === "all" || restaurantCategory(pin) === category)
+    && `${pin.brand_name} ${pin.poi_name}`.toLowerCase().includes(restaurantQuery.trim().toLowerCase())
+  ), [catalogPins, category, restaurantQuery]);
 
   useEffect(() => {
-    if (!searchViewport) return;
+    if ((!searchViewport && preferences.mapsEnabled) || page !== "nearby" || !config) return;
     const ctrl = new AbortController();
     clearTimeout(debounce.current);
     debounce.current = setTimeout(() => {
       if (Date.now() < quotaUntilRef.current) return; // cooling down: don't even ask the backend
-      mapItems({ ...location, radiusKm, viewport: searchViewport, includeUnmatched: true, signal: ctrl.signal })
+      setMapBusy(true);
+      mapItems({ provider, ...location, radiusKm, viewport: searchViewport, includeUnmatched: false, includePending: true, signal: ctrl.signal })
         .then((d) => {
+          if (ctrl.signal.aborted) return;
           setMapData(d);
           setMapError(null);
         })
         .catch((e) => {
-          if (e.name === "AbortError") return;
+          if (ctrl.signal.aborted || e.name === "AbortError") return;
           if (e.retryAfter && (e.code === "places_quota" || e.code === "places_unavailable" || e.status === 429)) {
             setQuotaUntil(Date.now() + e.retryAfter * 1000);
           }
           setMapError(e.message);
           setMapErrorDismissed(false); // a new failure shows again even if the last one was closed
-        });
+        }).finally(() => { if (!ctrl.signal.aborted) setMapBusy(false); });
     }, 350);
     return () => {
       clearTimeout(debounce.current);
       ctrl.abort();
+      setMapBusy(false);
     };
-  }, [location, radiusKm, searchViewport, retry]);
+  }, [location, radiusKm, searchViewport, retry, page, config, provider, preferences.mapsEnabled]);
 
   const moveTo = useCallback((ll) => {
     const next = { lat: ll.lat, lng: ll.lng };
     if (!inPhilippines(next)) {
       setGeoError("CalCipher only covers the Philippines. Drop the pin inside the country.");
-      return;
+      return false;
     }
     setGeoError(null);
+    cancelSearch();
     setLastChat(null);
+    setSearchResponse(null);
+    setSearchStarted(false);
     setMapData(null);
     setSearchViewport(viewport);
     setLocation(next);
-  }, [viewport]);
+    return true;
+  }, [viewport, cancelSearch]);
 
   function applyRadius(meters) {
     if (meters === radiusMeters) return;
+    cancelSearch();
     setLastChat(null);
+    setSearchResponse(null);
+    setSearchStarted(false);
     setMapData(null);
     setSearchViewport(viewport);
     setRadiusMeters(meters);
@@ -129,6 +196,7 @@ export default function App() {
   }
 
   function useMyLocation() {
+    if (!preferences.locationEnabled) return;
     if (!navigator.geolocation) {
       setGeoError("This browser can't share your location. Click the map to set it instead.");
       return;
@@ -144,23 +212,42 @@ export default function App() {
     );
   }
 
-  async function send(text) {
-    setMessages((m) => [...m, { id: nextId++, role: "user", text }]);
+  async function send(text, { fromSearch = false, filters } = {}) {
+    if (chatRequest.current) return;
+    if (fromSearch) { setSearchStarted(true); setSearchResponse(null); setSearchError(null); }
+    const ctrl = new AbortController();
+    const searchContext = { ...location, radiusKm, provider };
+    chatRequest.current = ctrl;
+    setMessages((m) => [...m, { id: messageId(), role: "user", text }]);
     setBusy(true);
     try {
-      const response = await chat({ message: text, ...location, radiusKm });
+      const previous = [...messages].reverse().find(m => m.role === "assistant" && m.requestText && m.searchContext
+        && ["lat", "lng", "radiusKm", "provider"].every(key => m.searchContext[key] === searchContext[key]));
+      const response = await chat({ provider, message: text, ...location, radiusKm, signal: ctrl.signal, filters,
+        previousMessage: fromSearch ? undefined : previous?.requestText });
+      if (ctrl.signal.aborted) return;
       setLastChat(response);
-      setMessages((m) => [...m, { id: nextId++, role: "assistant", response }]);
+      setActiveGoals(response.inspector?.constraints ?? {});
+      if (fromSearch) setSearchResponse(response);
+      const context = response.inspector?.constraints;
+      const requestText = context ? [context.semantic_query, context.target_brand,
+        context.max_calories != null && `under ${context.max_calories} kcal`,
+        context.min_protein_g != null && `at least ${context.min_protein_g} g protein`,
+        context.max_price_php != null && `under PHP${context.max_price_php}`,
+        `within ${context.max_distance_km} km`].filter(Boolean).join(" ").slice(0,500) : text;
+      setMessages((m) => [...m, { id: messageId(), role: "assistant", response, searchContext, requestText }]);
       if (response.results[0]) setFocus({ lat: response.results[0].latitude, lng: response.results[0].longitude, t: Date.now() });
     } catch (e) {
+      if (ctrl.signal.aborted) return;
       const title =
         e.code === "macro_physics_violation" ? "That combination isn't possible"
         : e.code === "rate_limited" ? "Too many searches"
         : e.code === "network" ? "Backend unreachable"
         : "Search failed";
-      setMessages((m) => [...m, { id: nextId++, role: "error", title, text: e.message }]);
+      setMessages((m) => [...m, { id: messageId(), role: "error", title, text: e.message }]);
+      if (fromSearch) setSearchError(`${title}: ${e.message}`);
     } finally {
-      setBusy(false);
+      if (chatRequest.current === ctrl) { chatRequest.current = null; setBusy(false); }
     }
   }
 
@@ -170,141 +257,97 @@ export default function App() {
     else setMapErrorDismissed(true);
   }
 
+  function locate(item) {
+    window.scrollTo(0, 0);
+    setFocus({ lat: item.latitude, lng: item.longitude, t: Date.now() });
+    navigate("nearby");
+  }
+  function exploreFavorite(pin) {
+    if (moveTo({ lat: pin.latitude, lng: pin.longitude })) {
+      setFocus({ lat: pin.latitude, lng: pin.longitude, t: Date.now() });
+      navigate("nearby");
+    }
+  }
+  function searchVisibleArea() {
+    if (viewport && viewport !== searchViewport) {
+      const [south, north, west, east] = viewport.split(",").map(Number);
+      if (!moveTo({ lat: (south + north) / 2, lng: (west + east) / 2 })) return;
+    }
+    setSearchViewport(viewport);
+    setRetry(n => n + 1);
+    setMapError(null);
+  }
+  const discoveryWarning = mapData?.discovery?.source === "disabled" ? "Restaurant discovery is switched off on the server."
+    : mapData?.discovery?.error ? "Live restaurant discovery is unavailable. Showing any previously cached places. Try again later." : null;
+  const nearbyStatus = mapBusy ? "Finding restaurants…" : mapError || discoveryWarning
+    ? pins.length ? `${pins.length} saved restaurants · live search offline` : "Restaurant search couldn’t connect"
+    : mapData ? pins.length ? `${pins.length} catalog location${pins.length === 1 ? "" : "s"} nearby` : "No catalog locations found in this area" : "Choose an area to explore";
+  const chatDiscoveryIssue = lastChat?.inspector?.discovery?.some(d => d.error || d.source === "disabled");
   return (
-    <div className="flex h-full flex-col lg:flex-row">
-      <SplashScreen />
-      <main
-        className={`relative shrink-0 overflow-hidden lg:h-full lg:flex-1 ${chatOpen ? "h-[48vh]" : "h-full"}`}
-      >
-        <CalorieMap
-          location={location}
-          onMove={moveTo}
-          onViewport={onViewport}
-          radiusKm={previewMeters / 1000}
-          pins={pins}
-          results={lastChat?.results ?? EMPTY}
-          focus={focus}
-          reserveBottom={chatOpen && showInspector}
-        />
-
-        <button
-          type="button"
-          onClick={() => setChatOpen((o) => !o)}
-          aria-expanded={chatOpen}
-          aria-controls="chat-panel"
-          className={`absolute right-3 top-3 z-[1001] flex items-center gap-1.5 rounded-md border-2 border-ink px-3 py-1.5 text-sm font-bold shadow-[3px_3px_0_#18202B] ${
-            chatOpen ? "bg-label text-ink hover:bg-slate-map" : "bg-ube text-label hover:bg-ink"
-          }`}
-        >
-          <ChatIcon />
-          {chatOpen ? "Hide chat" : "Chat"}
-        </button>
-
-        {/* pr-28 keeps the wrapping controls clear of the Chat button */}
-        <div className="pointer-events-none absolute inset-x-0 top-0 z-[1000] flex flex-wrap items-start gap-2 p-3 pr-28">
-          <div className="pointer-events-auto flex flex-wrap items-center gap-2 rounded-md border-2 border-ink bg-label p-1.5 shadow-[3px_3px_0_#18202B]">
-            <div role="radiogroup" aria-label="Map pins" className="flex rounded border border-ink">
-              {[
-                [true, "Calorie spots"],
-                [false, "Nearby restaurants"],
-              ].map(([val, label]) => (
-                <button
-                  key={label}
-                  role="radio"
-                  aria-checked={verifiedOnly === val}
-                  onClick={() => setVerifiedOnly(val)}
-                  className={`px-2.5 py-1 text-sm font-semibold ${verifiedOnly === val ? "bg-ink text-label" : "hover:bg-slate-map"}`}
-                >
-                  {label}
-                </button>
-              ))}
+    <RatingsContext.Provider value={mealRatings}><MealPlanContext.Provider value={mealPlan}><div className="page-shell">
+      <a href="#page-content" className="skip-link" onClick={event => { event.preventDefault(); heading.current?.focus(); }}>Skip to content</a>
+      <header className="app-header"><div className="app-header-inner">
+        <a className="app-brand" href="#/home" aria-label="CalCipher home"><BrandLogo decorative /></a>
+        <nav className="app-navigation" aria-label="Main navigation">{Object.entries(PAGES).filter(([id]) => !["home", "settings", "data"].includes(id)).map(([id, [label, icon]]) =>
+          <a key={id} href={`#/${id}`} aria-current={page === id ? "page" : undefined}><Icon name={icon} size={21} /><span>{label}</span></a>)}</nav>
+        <a className="settings-shortcut" href="#/settings" aria-label="Settings" title="Settings" aria-current={page === "settings" ? "page" : undefined}><Icon name="sun" size={21} /><span>Settings</span></a>
+      </div></header>
+      <div className="page-body">
+        <main id="page-content" className={`page-content page-${page}`}>
+          {page === "home" && <HomePage headingRef={heading} />}
+          {page === "data" && <MenuDataPage headingRef={heading} />}
+          {page === "plan" && <MealPlanPage headingRef={heading} />}
+          {page === "search" && <div className="search-layout">
+            <section className="search-sheet">
+              <h1 ref={heading} tabIndex={-1}>Search menus</h1>
+              <p className="page-lead">Look up a dish or browse by restaurant.</p>
+              <MealSearch savedValues={formValues} onValuesChange={setFormValues} busy={busy || !config} onSearch={(query, filters) => send(query, { fromSearch: true, filters })} />
+              <a className="search-location-link" href="#/nearby"><Icon name="pin" size={17} />Choose your search area<Icon name="arrow" size={17} /></a>
+            </section>
+            <CatalogBrands goals={activeGoals} />
+            {searchStarted && <section ref={searchResultsRef} className="search-results" aria-label="Meal search results"><h2>Meal results</h2>
+              {busy && <p role="status">Finding meals near your pin…</p>}
+              {searchError && <p role="alert" className="page-alert">{searchError}</p>}
+              {searchResponse && <MealResults response={searchResponse} onLocate={locate} isFavorite={isFavorite} onToggleFavorite={toggleFavorite} />}
+            </section>}
+          </div>}
+          {page === "nearby" && <section className="nearby-layout">
+            <div className="page-title-row"><div><h1 ref={heading} tabIndex={-1}>Nearby restaurants</h1><p className="page-lead">Find a branch, look through its menu or save it for later.</p></div><button className="button-secondary" type="button" aria-expanded={filtersOpen} aria-controls="area-controls" onClick={() => setFiltersOpen(v => !v)}><Icon name="filter" size={18} />Area & filters</button></div>
+            {filtersOpen && <div className="area-controls" id="area-controls">
+              <div className="radius-control"><div className="radius-heading"><label htmlFor="search-radius">Search radius</label><output htmlFor="search-radius">{formatRadius(previewMeters)}</output></div>
+                <input id="search-radius" type="range" aria-label="Search radius" aria-valuetext={formatRadius(previewMeters)} min={100} max={5000} step={100} value={previewMeters}
+                  onPointerDown={event => { draggingRadius.current = true; event.currentTarget.setPointerCapture(event.pointerId); }}
+                  onChange={event => { const meters = event.currentTarget.valueAsNumber; setPreviewMeters(meters); if (!draggingRadius.current) applyRadius(meters); }}
+                  onLostPointerCapture={finishRadiusDrag} onBlur={finishRadiusDrag} /><div className="range-limits"><span>100 m</span><span>5 km</span></div></div>
+              <button type="button" onClick={useMyLocation} disabled={!preferences.locationEnabled} className="location-button"><Icon name="compass" size={17} />Use my location</button>
+              <div className="nearby-category-controls">
+                <label className="field">Category<select value={category} onChange={event => setCategory(event.target.value)}><option value="all">All categories</option>{RESTAURANT_CATEGORIES.map(value => <option key={value}>{value}</option>)}</select></label>
+                <label className="field">Sort<select value={sortOrder} onChange={event => setSortOrder(event.target.value)}><option value="az">A–Z</option><option value="za">Z–A</option><option value="nearest">Nearest first</option></select></label>
+              </div>
+            </div>}
+            <div className="nearby-search-tools">
+              <label className="field">Search restaurants<input type="search" placeholder="Restaurant or brand name" value={restaurantQuery} onChange={event => setRestaurantQuery(event.target.value)} /></label>
             </div>
-            <label className="flex items-center gap-1.5 px-1 text-sm font-semibold">
-              Radius
-              <input
-                type="range"
-                aria-label="Search radius"
-                aria-valuetext={formatRadius(previewMeters)}
-                min={100}
-                max={5000}
-                step={100}
-                value={previewMeters}
-                onPointerDown={event => {
-                  draggingRadius.current = true;
-                  event.currentTarget.setPointerCapture(event.pointerId);
-                }}
-                onChange={event => {
-                  const meters = event.currentTarget.valueAsNumber;
-                  setPreviewMeters(meters);
-                  if (!draggingRadius.current) applyRadius(meters);
-                }}
-                onLostPointerCapture={finishRadiusDrag}
-                onBlur={finishRadiusDrag}
-                className="w-28 cursor-pointer accent-ube"
-              />
-              <span className="num min-w-12">{formatRadius(previewMeters)}</span>
-            </label>
-            {(viewport !== searchViewport || mapError) && (
-              <button type="button" disabled={quotaUntil > 0}
-                title={quotaUntil > 0 ? "Google Places is cooling down; try again shortly" : undefined}
-                className="rounded px-2 py-1 text-sm font-semibold text-ube underline disabled:cursor-not-allowed disabled:opacity-40"
-                onClick={() => { setSearchViewport(viewport); setRetry(n => n + 1); setMapError(null); }}>
-                {viewport !== searchViewport ? "Search this area" : "Retry search"}
-              </button>
-            )}
-            <button type="button" onClick={useMyLocation} className="rounded px-2 py-1 text-sm font-semibold text-ube underline decoration-2 underline-offset-2">
-              Use my location
-            </button>
-          </div>
-          {alertText && (
-            <div role="alert" className="pointer-events-auto flex max-w-sm items-start gap-1 rounded-md border-2 border-warn bg-label py-1 pl-3 pr-1 text-sm">
-              <p className="flex-1 py-0.5">{alertText}</p>
-              <CloseButton label="Dismiss message" onClick={dismissAlert} />
-            </div>
-          )}
-        </div>
+            {category !== "all" && <button className="active-category text-button" type="button" onClick={() => setCategory("all")} aria-label={`Clear ${category} category`}>{category}<Icon name="close" size={14} /></button>}
+            <div className="nearby-toolbar"><p role="status">{nearbyStatus}</p><div className="nearby-actions">
+              {(viewport !== searchViewport || mapError || discoveryWarning) && <button type="button" disabled={quotaUntil > 0 || mapBusy} className="text-button" onClick={searchVisibleArea}><Icon name="search" size={16} />{viewport !== searchViewport ? "Search this area" : "Retry search"}</button>}
+              <div className="view-switch" role="group" aria-label="Nearby view">{["map", "list"].map(view => <button type="button" key={view} disabled={view === "map" && !preferences.mapsEnabled} aria-pressed={effectiveMapView === view} onClick={() => setMapView(view)}>{view === "map" ? "Map" : "List"}</button>)}</div>
+            </div></div>
+            {alertText && <div role="alert" className="page-alert"><Icon name="info" size={18} /><p>{alertText}</p><CloseButton label="Dismiss message" onClick={dismissAlert} /></div>}
+            {preferences.mapsEnabled && <div className="nearby-map-shell" hidden={effectiveMapView !== "map"}><CalorieMap provider={provider} location={location} onMove={moveTo} onViewport={onViewport} radiusKm={previewMeters / 1000} pins={pins} results={lastChat?.results ?? EMPTY} focus={focus} theme={appearance.theme} goals={activeGoals} isFavorite={isFavorite} onToggleFavorite={toggleFavorite} />
+              <div className="map-key"><span><i className="legend-dot nutrition-dot" />Reviewed</span><span><i className="legend-dot other-dot" />Pending review</span><span><i className="legend-dot location-dot" />Your pin</span></div>
+            </div>}
+            {effectiveMapView === "list" && <div className="nearby-list"><h2>Restaurants by brand</h2>{pins.length ? <BrandDirectory key={`${restaurantQuery}-${category}-${sortOrder}`} sortOrder={sortOrder} pins={pins} goals={activeGoals} isFavorite={isFavorite} onToggleFavorite={toggleFavorite} onLocate={pin => { locate(pin); if (preferences.mapsEnabled) setMapView("map"); }} /> : <p>{mapBusy ? "Finding nearby places…" : mapError || discoveryWarning ? "Restaurant listings are temporarily unavailable." : "No catalog locations in this area. Try a wider radius."}</p>}{provider === "google" && <p>Restaurant locations from Google Maps.</p>}</div>}
+            <p className="nearby-footnote">{provider === "osm" ? "OpenStreetMap locations · " : "Google Maps locations · "}Menus and source prices may vary by branch.</p>
+          </section>}
+          {page === "chat" && <section className="chat-page"><div className="page-title-row"><div><h1 ref={heading} tabIndex={-1}>Meal chat</h1></div><button className="text-button" type="button" onClick={() => { setShowInspector(true); setInspectorOpen(true); }}>Retrieval details</button></div><p className="chat-page-context">Searching within {formatRadius(radiusMeters)} of your pin. <a href="#/nearby">Change area</a></p>{showInspector && <div className="inspector-layer"><RagInspector open={inspectorOpen} onToggle={() => setInspectorOpen(value => !value)} onClose={() => { setShowInspector(false); setInspectorOpen(false); }} chat={lastChat} map={mapData} /></div>}<div className="chat-page-panel">{chatDiscoveryIssue && <p className="chat-connection-note" role="status"><Icon name="info" size={17} />Restaurant search couldn’t connect. <a href="#/settings">Connection details</a></p>}<ChatPanel messages={messages} onSend={send} busy={busy || !config} onLocate={locate} searchContext={{ ...location, radiusKm, provider }} isFavorite={isFavorite} onToggleFavorite={toggleFavorite} /></div></section>}
+          {page === "favorites" && <FavoritesPage headingRef={heading} favorites={favorites} provider={provider} onExplore={exploreFavorite} onToggle={toggleFavorite} storageUnavailable={storageUnavailable} goals={activeGoals} />}
+          {page === "settings" && <SettingsPage headingRef={heading} appearance={appearance} provider={provider} config={config} configError={configError} discoveryIssue={Boolean(mapData ? discoveryWarning || mapError : chatDiscoveryIssue || mapError)} onReconnect={() => setConfigRetry(n => n + 1)} browserKeyConfigured={Boolean(browserMapsKey)} preferences={preferences} onPreference={setPreference} />}
 
-        <ul
-          className={`pointer-events-none absolute left-3 z-[999] space-y-1 rounded-md bg-label/95 px-3 py-2 text-xs shadow ${
-            chatOpen && showInspector ? "bottom-14" : "bottom-8"
-          }`}
-        >
-          <li className="flex items-center gap-2"><span className="inline-block h-3 w-3 rounded-full border border-ink bg-ube" /> Has calorie data</li>
-          {!verifiedOnly && <li className="flex items-center gap-2"><span className="inline-block h-2.5 w-2.5 rounded-full bg-nodata" /> No data yet</li>}
-          <li className="flex items-center gap-2"><span className="inline-block h-3 w-3 rounded-full border border-ink bg-mango" /> Your pin (drag or click map)</li>
-        </ul>
 
-        {chatOpen && showInspector && (
-          <RagInspector
-            open={inspectorOpen}
-            onToggle={() => setInspectorOpen((o) => !o)}
-            onClose={() => { setShowInspector(false); setInspectorOpen(false); }}
-            chat={lastChat}
-            map={mapData}
-          />
-        )}
-      </main>
+        </main>
+      </div>
 
-      {chatOpen && (
-        <aside id="chat-panel" className="flex min-h-0 flex-1 flex-col border-ink bg-slate-map lg:w-[27rem] lg:flex-none lg:border-l-2">
-          <header className="flex items-start gap-2 border-b-2 border-ink bg-label px-4 py-3">
-            <div className="min-w-0 flex-1">
-              <h1 className="type-label text-3xl leading-none">CalCipher</h1>
-              <p className="mt-1 text-sm text-slate-mute">
-                Calorie-counted meals at restaurants within {formatRadius(radiusMeters)} of your pin.
-              </p>
-              {!showInspector && (
-                <button type="button" onClick={() => setShowInspector(true)}
-                  className="mt-1 text-sm font-semibold text-ube underline decoration-2 underline-offset-2">
-                  Show retrieval inspector
-                </button>
-              )}
-            </div>
-            <CloseButton label="Close chat" onClick={() => setChatOpen(false)} className="-mr-2 -mt-1" />
-          </header>
-          <ChatPanel messages={messages} onSend={send} busy={busy} onLocate={(it) => setFocus({ lat: it.latitude, lng: it.longitude, t: Date.now() })} />
-        </aside>
-      )}
-    </div>
+    </div></MealPlanContext.Provider></RatingsContext.Provider>
   );
 }

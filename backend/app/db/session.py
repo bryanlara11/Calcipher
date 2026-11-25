@@ -91,6 +91,35 @@ async def init_db(engine: AsyncEngine) -> dict[str, bool]:
         await conn.execute(
             text("ALTER TABLE nutrition_catalog ADD COLUMN IF NOT EXISTS embedding_model VARCHAR(255)")
         )
+        await conn.execute(text("ALTER TABLE nutrition_catalog ADD COLUMN IF NOT EXISTS price_php NUMERIC(10,2)"))
+        await conn.execute(text("ALTER TABLE nutrition_catalog ADD COLUMN IF NOT EXISTS price_source_url TEXT"))
+        await conn.execute(text("ALTER TABLE nutrition_catalog ADD COLUMN IF NOT EXISTS source_images JSONB NOT NULL DEFAULT '[]'::jsonb"))
+        await conn.execute(text("ALTER TABLE nutrition_catalog ADD COLUMN IF NOT EXISTS provenance JSONB NOT NULL DEFAULT '{}'::jsonb"))
+        await conn.execute(text("ALTER TABLE nutrition_catalog ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT true"))
+        await conn.execute(text("ALTER TABLE nutrition_catalog ALTER COLUMN serving_size DROP NOT NULL"))
+        await conn.execute(text("UPDATE nutrition_catalog SET serving_size = NULL WHERE serving_size = 'serving size unavailable'"))
+        # PostgreSQL 16: a missing serving must still participate in duplicate prevention.
+        await conn.execute(text("""
+            DO $$ BEGIN
+                IF EXISTS (SELECT 1 FROM pg_constraint c JOIN pg_index i ON i.indexrelid = c.conindid
+                           WHERE c.conrelid = 'nutrition_catalog'::regclass
+                             AND c.conname = 'uq_catalog_item' AND NOT i.indnullsnotdistinct) THEN
+                    ALTER TABLE nutrition_catalog DROP CONSTRAINT uq_catalog_item;
+                    ALTER TABLE nutrition_catalog ADD CONSTRAINT uq_catalog_item
+                        UNIQUE NULLS NOT DISTINCT (brand_slug, food_item, serving_size);
+                END IF;
+            END $$
+        """))
+        await conn.execute(text("""
+            DO $$ BEGIN
+                IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                               WHERE conname = 'ck_catalog_price_source'
+                                 AND conrelid = 'nutrition_catalog'::regclass) THEN
+                    ALTER TABLE nutrition_catalog ADD CONSTRAINT ck_catalog_price_source
+                    CHECK (price_php IS NULL OR (price_php >= 0 AND price_source_url IS NOT NULL AND is_verified));
+                END IF;
+            END $$
+        """))
         if has_trgm:
             await conn.execute(
                 text(

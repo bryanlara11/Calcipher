@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import date, datetime
+from uuid import UUID
 from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -21,6 +23,7 @@ class SearchConstraints(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     max_calories: int | None = Field(None, ge=0, le=10_000)
+    max_price_php: float | None = Field(None, ge=0, le=99999999.99, allow_inf_nan=False)
     min_protein_g: float | None = Field(None, ge=0, le=500)
     max_distance_km: float = Field(DEFAULT_DISTANCE_KM, gt=0, le=MAX_DISTANCE_KM)
     target_brand: str | None = Field(None, max_length=255)
@@ -30,12 +33,21 @@ class SearchConstraints(BaseModel):
 # ---------- requests ----------
 
 
+class MealFilters(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    max_calories: int | None = Field(None, ge=0, le=10_000)
+    min_protein_g: float | None = Field(None, ge=0, le=500, allow_inf_nan=False)
+    max_price_php: float | None = Field(None, ge=0, le=99999999.99, allow_inf_nan=False)
+
+
 class ChatRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
     message: str = Field(min_length=1, max_length=MAX_QUERY_LENGTH)
     lat: Latitude
     lng: Longitude
+    filters: MealFilters | None = None
+    previous_message: str | None = Field(None, min_length=1, max_length=MAX_QUERY_LENGTH)
     radius_km: float | None = Field(
         None, gt=0, le=MAX_DISTANCE_KM, description="Default search radius if the message names none"
     )
@@ -44,7 +56,19 @@ class ChatRequest(BaseModel):
 # ---------- shared ----------
 
 
-class RetrievedItem(BaseModel):
+class SourceEvidence(BaseModel):
+    rating_updated_at: datetime | None = None
+    rating_average: float | None = None
+    rating_count: int = 0
+    community_pick: bool = False
+    source_classification: Literal["official", "community_reported", "estimated", "unknown"] = "unknown"
+    collected_at: date | None = None
+    secondary_source_url: str | None = None
+    nutrition_source_url: str | None = None
+
+
+class RetrievedItem(SourceEvidence):
+    source_images: list[str] = Field(default_factory=list)
     item_id: str
     brand_name: str
     brand_slug: str
@@ -53,9 +77,11 @@ class RetrievedItem(BaseModel):
     protein_g: float | None
     carbs_g: float | None
     fat_g: float | None
-    serving_size: str
+    serving_size: str | None
     is_verified: bool
     source_post_url: str | None
+    price_php: float | None = None
+    price_source_url: str | None = None
     place_id: str | None = None
     attributions: list[dict[str, str]] = Field(default_factory=list)
     osm_type: str | None = None
@@ -70,6 +96,7 @@ class RetrievedItem(BaseModel):
 
 
 class DiscoveryTrace(BaseModel):
+    provider: Literal["google", "osm"] | None = None
     source: Literal["cache", "live", "stale_cache_fallback", "disabled"]
     cache_hit: bool
     fetched_count: int = 0
@@ -97,6 +124,7 @@ class InspectorTrace(BaseModel):
     discovery: list[DiscoveryTrace]
     embedder: str
     candidate_count: int
+    catalog_candidate_count: int = 0
     retrieval_attempts: int
     generator_used: Literal["llm", "template"]
     timings_ms: dict[str, float]
@@ -108,6 +136,8 @@ class InspectorTrace(BaseModel):
 class ChatResponse(BaseModel):
     answer: str
     results: list[RetrievedItem]
+    catalog_matches: list[RetrievedItem] = Field(default_factory=list)
+    catalog_answers: list[CatalogItem] = Field(default_factory=list)
     relaxation: RelaxationInfo
     inspector: InspectorTrace
 
@@ -126,6 +156,9 @@ class BranchPin(BaseModel):
     matched_brand_slug: str | None
     brand_name: str | None
     has_calorie_data: bool
+    has_catalog_data: bool = False
+    catalog_item_count: int = 0
+    pending_item_count: int = 0
     item_count: int
     min_calories: int | None
     max_protein_g: float | None
@@ -140,7 +173,8 @@ class MapItemsResponse(BaseModel):
     discovery: DiscoveryTrace
 
 
-class CatalogItem(BaseModel):
+class CatalogItem(SourceEvidence):
+    source_images: list[str] = Field(default_factory=list)
     item_id: str
     brand_name: str
     food_item: str
@@ -148,9 +182,11 @@ class CatalogItem(BaseModel):
     protein_g: float | None
     carbs_g: float | None
     fat_g: float | None
-    serving_size: str
+    serving_size: str | None
     is_verified: bool
     source_post_url: str | None
+    price_php: float | None = None
+    price_source_url: str | None = None
 
 
 class BrandItemsResponse(BaseModel):
@@ -158,7 +194,16 @@ class BrandItemsResponse(BaseModel):
     items: list[CatalogItem]
 
 
+ChatResponse.model_rebuild()
+
+
 class ErrorResponse(BaseModel):
     detail: str
     code: str
     request_id: str | None = None
+
+
+class MealRatingRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    voter_id: UUID
+    score: int = Field(ge=1, le=5, strict=True)

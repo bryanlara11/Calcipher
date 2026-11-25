@@ -1,0 +1,41 @@
+[
+  {
+    "region_id": "junior-label",
+    "image": "DYUCaaOklAh_5.jpg",
+    "source_url": "https://www.instagram.com/p/DYUCaaOklAh/",
+    "item_hint": "Big Bite Junior Hotdog",
+    "reference_record_id": "PH-001",
+    "bbox": [
+      0.17,
+      0.2,
+      0.94,
+      0.52
+    ]
+  },
+  {
+    "region_id": "cheddar-label",
+    "image": "DYUCaaOklAh_4.jpg",
+    "source_url": "https://www.instagram.com/p/DYUCaaOklAh/",
+    "item_hint": "Big Bite Cheddar Cheese Hotdog",
+    "reference_record_id": "PH-005",
+    "bbox": [
+      0.15,
+      0.55,
+      0.98,
+      0.9
+    ]
+  },
+  {
+    "region_id": "jumbo-label",
+    "image": "DYUCaaOklAh_2.jpg",
+    "source_url": "https://www.instagram.com/p/DYUCaaOklAh/",
+    "item_hint": "Big Bite Jumbo Classic Hotdog",
+    "reference_record_id": "PH-006",
+    "bbox": [
+      0.15,
+      0.53,
+      0.98,
+      0.91
+    ]
+  }
+]

@@ -30,6 +30,11 @@ MIN_DISTANCE_KM = 0.1
 _NUM = r"(\d{1,3}(?:,\d{3})+(?![\d,])|\d{1,5}(?:\.\d{1,2})?)"
 _CAL_UNIT = r"(?:kcals?|kilocalories|calories|calorie|cals?)\b"
 _LESS = r"(?:under|below|less\s+than|fewer\s+than|lower\s+than|max(?:imum)?(?:\s+of)?|at\s+most|up\s+to|no\s+more\s+than|not\s+more\s+than|within|<=?|≤)"
+_PRICE_PATTERNS = [
+    re.compile(rf"(?:{_LESS}\s*)?(?:PHP|₱)\s*{_NUM}", re.I),
+    re.compile(rf"(?:{_LESS}\s*)?{_NUM}\s*(?:pesos?|PHP)\b", re.I),
+    re.compile(rf"\bbudget\s*(?:of|is|:|=)?\s*{_NUM}\b", re.I),
+]
 _MORE = r"(?:at\s+least|min(?:imum)?(?:\s+of)?|over|more\s+than|above|greater\s+than|>=?|≥)"
 _GRAMS = r"(?:g|grams?|gms?)\b"
 
@@ -115,6 +120,13 @@ class RegexConstraintParser:
         warnings: list[str] = []
         heuristic: set[str] = set()
         spans: list[tuple[int, int]] = []
+        max_price: float | None = None
+        for pattern in _PRICE_PATTERNS:
+            m = pattern.search(text)
+            if m:
+                max_price = _num(m.group(1))
+                spans.append(m.span())
+                break
 
         max_calories: int | None = None
         for pattern in _CALORIE_PATTERNS:
@@ -177,6 +189,7 @@ class RegexConstraintParser:
 
         constraints = SearchConstraints(
             max_calories=max_calories,
+            max_price_php=max_price,
             min_protein_g=min_protein,
             max_distance_km=distance if distance is not None else default_distance_km,
             target_brand=brand,
@@ -240,6 +253,7 @@ class QueryParser:
         try:
             return SearchConstraints(
                 max_calories=rx.max_calories if rx.max_calories is not None else llm.max_calories,
+                max_price_php=rx.max_price_php,
                 min_protein_g=protein,
                 max_distance_km=distance,
                 target_brand=brand,

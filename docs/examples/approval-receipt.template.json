@@ -1,0 +1,7 @@
+{
+  "dataset_sha256": "REPLACE_WITH_EXACT_REVIEWED_DATASET_SHA256",
+  "reviewed_by": "REPLACE_WITH_ACTUAL_HUMAN_REVIEWER",
+  "reviewed_at": "REPLACE_WITH_ISO_TIMESTAMP_WITH_TIMEZONE",
+  "reference": "REPLACE_WITH_ACTUAL_REVIEW_ACTION_REFERENCE",
+  "approved_record_ids": []
+}

@@ -12,8 +12,9 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 BACKEND_DIR = Path(__file__).resolve().parent.parent
 
 DEFAULT_OVERPASS_URLS = [
+    "https://ovp.dresel.systems/api-as/interpreter",
     "https://overpass-api.de/api/interpreter",
-    "https://overpass.kumi.systems/api/interpreter",
+    "https://overpass.private.coffee/api/interpreter",
 ]
 
 
@@ -36,7 +37,7 @@ class Settings(BaseSettings):
     # Quota cooldown survives API restarts so a restart doesn't immediately re-hit Google.
     places_state_path: Path = BACKEND_DIR / "data" / "places_cooldown.json"
 
-    # Legacy offline fixtures
+    # No-key OpenStreetMap discovery (cached, rate limited, with mirror fallback).
     overpass_enabled: bool = True
     overpass_urls: list[str] = Field(default_factory=lambda: list(DEFAULT_OVERPASS_URLS), min_length=1)
     overpass_user_agent: str = Field("CalCipher-UPM-Academic-Project/1.0", min_length=8)

@@ -1,0 +1,34 @@
+[
+  {
+    "brand_name": "Crisostomo",
+    "account": "anongcaloriesnito",
+    "post_url": "https://www.instagram.com/anongcaloriesnito/p/Df9DIb8kv8w/",
+    "observed_on": "2026-11-25",
+    "method": "public_browser_observation",
+    "snapshot_sha256": "ce676188ad6f52df026393145621b09e7202708b15af6cd8177372ca202d2a6e"
+  },
+  {
+    "brand_name": "CoCo Ichibanya",
+    "account": "anongcaloriesnito",
+    "post_url": "https://www.instagram.com/anongcaloriesnito/p/Df1KrlXktfj/",
+    "observed_on": "2026-11-25",
+    "method": "public_browser_observation",
+    "snapshot_sha256": "135d92b41342bc1b9b8cc9800e008c5e9e0634081ed0b314e5d528339ef278ca"
+  },
+  {
+    "brand_name": "Dot Coffee",
+    "account": "anongcaloriesnito",
+    "post_url": "https://www.instagram.com/anongcaloriesnito/p/DfwN0cIkjYd/",
+    "observed_on": "2026-11-25",
+    "method": "public_browser_observation",
+    "snapshot_sha256": "6bd95b5cd2d9bef018e36b3d3ead71f8ef2d7f73598cf8a2ddcfcd2d7a7d0768"
+  },
+  {
+    "brand_name": "Conti's",
+    "account": "anongcaloriesnito",
+    "post_url": "https://www.instagram.com/anongcaloriesnito/p/DfrSys2EmgQ/",
+    "observed_on": "2026-11-25",
+    "method": "public_browser_observation",
+    "snapshot_sha256": "7d5f3ac8aef95f92126167d48b0dbf833310f69a0e0535bd91f024dddcd4967c"
+  }
+]

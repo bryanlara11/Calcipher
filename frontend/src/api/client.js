@@ -30,29 +30,48 @@ async function request(path, options = {}) {
   return body;
 }
 
-export function chat({ message, lat, lng, radiusKm, signal }) {
+export function chat({ message, lat, lng, radiusKm, signal, provider, filters, previousMessage }) {
   return request("/api/v1/chat", {
     method: "POST",
-    body: JSON.stringify({ message, lat, lng, radius_km: radiusKm }),
+    body: JSON.stringify({ message, lat, lng, radius_km: radiusKm, ...(filters ? { filters } : {}), ...(previousMessage ? { previous_message: previousMessage } : {}) }),
     signal,
+    headers: { "Content-Type": "application/json", "X-CalCipher-Map-Provider": provider ?? "osm" },
   });
 }
 
-export function mapItems({ lat, lng, radiusKm, viewport, includeUnmatched, signal }) {
+export function mapItems({ lat, lng, radiusKm, viewport, includeUnmatched, includePending = false, signal, provider }) {
   const params = new URLSearchParams({
     lat: lat.toFixed(6),
     lng: lng.toFixed(6),
     radius_km: String(radiusKm),
     include_unmatched: String(includeUnmatched),
+    include_pending: String(includePending),
   });
   if (viewport) viewport.split(",").forEach(value => params.append("viewport", value));
-  return request(`/api/v1/map-items?${params}`, { signal });
+  return request(`/api/v1/map-items?${params}`, { signal, headers: { "X-CalCipher-Map-Provider": provider ?? "osm" } });
 }
 
-export function brandItems(slug, { signal } = {}) {
-  return request(`/api/v1/brands/${encodeURIComponent(slug)}/items`, { signal });
+export const browserMapsKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY?.trim() ?? "";
+export function mapConfig({ signal } = {}) {
+  return request(`/api/v1/map-config?browser_key_configured=${Boolean(browserMapsKey)}`, { signal });
+}
+
+export function brandItems(slug, { signal, includePending = false } = {}) {
+  return request(`/api/v1/brands/${encodeURIComponent(slug)}/items?include_pending=${includePending}`, { signal });
 }
 
 export function health() {
   return request("/api/v1/health");
+}
+
+export function catalogSummary({ signal } = {}) {
+  return request("/api/v1/catalog-summary", { signal });
+}
+
+export function catalogBrands({ signal } = {}) {
+  return request("/api/v1/catalog-brands", { signal });
+}
+
+export function rateMeal(itemId, voterId, score) {
+  return request(`/api/v1/meal-ratings/${encodeURIComponent(itemId)}`, { method: "POST", body: JSON.stringify({ voter_id: voterId, score }) });
 }

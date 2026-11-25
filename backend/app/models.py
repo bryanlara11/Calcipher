@@ -18,6 +18,7 @@ from sqlalchemy import (
     CheckConstraint,
     DateTime,
     Double,
+    ForeignKey,
     Identity,
     Index,
     Integer,
@@ -28,7 +29,7 @@ from sqlalchemy import (
     UniqueConstraint,
     func,
 )
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 EMBEDDING_DIM = 768
@@ -55,8 +56,13 @@ class NutritionCatalog(Base):
     protein_g: Mapped[Decimal | None] = mapped_column(Numeric(6, 2))
     carbs_g: Mapped[Decimal | None] = mapped_column(Numeric(6, 2))
     fat_g: Mapped[Decimal | None] = mapped_column(Numeric(6, 2))
-    serving_size: Mapped[str] = mapped_column(String(100), nullable=False)
+    price_php: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))
+    price_source_url: Mapped[str | None] = mapped_column(Text)
+    source_images: Mapped[list[str]] = mapped_column(JSONB, default=list, server_default="[]")
+    serving_size: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    provenance: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default="{}")
     is_verified: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
     source_post_url: Mapped[str | None] = mapped_column(Text)
     context_string: Mapped[str] = mapped_column(Text, nullable=False)
     embedding: Mapped[list[float] | None] = mapped_column(Vector(EMBEDDING_DIM))
@@ -73,7 +79,10 @@ class NutritionCatalog(Base):
         CheckConstraint("carbs_g IS NULL OR carbs_g >= 0", name="ck_catalog_carbs_nonneg"),
         CheckConstraint("fat_g IS NULL OR fat_g >= 0", name="ck_catalog_fat_nonneg"),
         CheckConstraint("brand_slug <> ''", name="ck_catalog_slug_nonempty"),
-        UniqueConstraint("brand_slug", "food_item", "serving_size", name="uq_catalog_item"),
+        CheckConstraint("price_php IS NULL OR (price_php >= 0 AND price_source_url IS NOT NULL AND is_verified)",
+                        name="ck_catalog_price_source"),
+        UniqueConstraint("brand_slug", "food_item", "serving_size", name="uq_catalog_item",
+                         postgresql_nulls_not_distinct=True),
         Index(
             "ix_nutrition_catalog_embedding_hnsw",
             "embedding",
@@ -130,3 +139,12 @@ class OverpassFetchLog(Base):
         CheckConstraint("radius_m > 0", name="ck_fetch_log_radius_pos"),
         CheckConstraint("element_count >= 0", name="ck_fetch_log_count_nonneg"),
     )
+
+
+class MealRating(Base):
+    __tablename__ = "meal_ratings"
+    item_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("nutrition_catalog.id", ondelete="CASCADE"), primary_key=True)
+    voter_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    score: Mapped[int] = mapped_column(Integer, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    __table_args__ = (CheckConstraint("score BETWEEN 1 AND 5", name="ck_meal_rating_score"),)

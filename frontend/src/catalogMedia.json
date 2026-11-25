@@ -1,0 +1,120 @@
+{
+  "images": {
+    "web-crisostomo-protacio.webp": {
+      "url": "/media/web-crisostomo-protacio.webp",
+      "alt": "Crisostomo Protacio's Pride mussels from the official menu",
+      "source": "https://www.florabelgroup.com.ph/menu/Crisostomo-MainMenu.pdf#page=2"
+    },
+    "web-crisostomo-bagumbayan.webp": {
+      "url": "/media/web-crisostomo-bagumbayan.webp",
+      "alt": "Crisostomo Bagumbayan Lechon from the official menu",
+      "source": "https://www.florabelgroup.com.ph/menu/Crisostomo-MainMenu.pdf#page=3"
+    },
+    "web-crisostomo-kinilaw.webp": {
+      "url": "/media/web-crisostomo-kinilaw.webp",
+      "alt": "Crisostomo Kinilaw ni Custodio from the official menu",
+      "source": "https://www.florabelgroup.com.ph/menu/Crisostomo-MainMenu.pdf#page=3"
+    },
+    "web-crisostomo-setas.webp": {
+      "url": "/media/web-crisostomo-setas.webp",
+      "alt": "Crisostomo Setas Salpicao mushrooms from the official menu",
+      "source": "https://www.florabelgroup.com.ph/menu/Crisostomo-MainMenu.pdf#page=10"
+    },
+    "web-crisostomo-crazy-sisa.webp": {
+      "url": "/media/web-crisostomo-crazy-sisa.webp",
+      "alt": "Crisostomo Crazy Sisa salad from the official menu",
+      "source": "https://www.florabelgroup.com.ph/menu/Crisostomo-MainMenu.pdf#page=14"
+    },
+    "web-coco-menu.webp": {
+      "url": "/media/web-coco-menu.webp",
+      "alt": "Official CoCo Ichibanya Philippines menu illustration showing several seafood and vegetable curries",
+      "source": "https://cocoichibanya.mugengroup.ph/menu/",
+      "note": "Official menu artwork; several dishes are pictured."
+    },
+    "web-contis-lemon-squares.webp": {
+      "url": "/media/web-contis-lemon-squares.webp",
+      "alt": "Conti's Lemon Squares product photo; box pictured, calories are per piece",
+      "source": "https://www.contis.ph/products/lemon-squares",
+      "note": "Box pictured; calorie values are per piece."
+    }
+  },
+  "brands": {
+    "crisostomo": {
+      "url": "/media/web-crisostomo-crazy-sisa.webp",
+      "alt": "Crisostomo Crazy Sisa salad from the official menu",
+      "source": "https://www.florabelgroup.com.ph/menu/Crisostomo-MainMenu.pdf#page=14"
+    },
+    "coco ichibanya": {
+      "url": "/media/web-coco-menu.webp",
+      "alt": "Official CoCo Ichibanya Philippines menu illustration showing several seafood and vegetable curries",
+      "source": "https://cocoichibanya.mugengroup.ph/menu/"
+    },
+    "contis": {
+      "url": "/media/web-contis-lemon-squares.webp",
+      "alt": "Conti's Lemon Squares product photo; box pictured, calories are per piece",
+      "source": "https://www.contis.ph/products/lemon-squares"
+    }
+  },
+  "dimensions": {
+    "/media/7-eleven-brand-source.webp": [
+      675,
+      900
+    ],
+    "/media/big-bite-cheddar-source.webp": [
+      675,
+      900
+    ],
+    "/media/big-bite-jumbo-source.webp": [
+      675,
+      900
+    ],
+    "/media/big-bite-junior-source.webp": [
+      675,
+      900
+    ],
+    "/media/city-cafe-menu-source.webp": [
+      675,
+      900
+    ],
+    "/media/mary-grace-brand-source.webp": [
+      675,
+      900
+    ],
+    "/media/tim-ho-wan-brand-source.webp": [
+      675,
+      900
+    ],
+    "/media/tim-ho-wan-pork-buns-source.webp": [
+      449,
+      598
+    ],
+    "/media/web-coco-menu.webp": [
+      1100,
+      1595
+    ],
+    "/media/web-contis-lemon-squares.webp": [
+      720,
+      720
+    ],
+    "/media/web-crisostomo-bagumbayan.webp": [
+      776,
+      850
+    ],
+    "/media/web-crisostomo-crazy-sisa.webp": [
+      687,
+      543
+    ],
+    "/media/web-crisostomo-kinilaw.webp": [
+      721,
+      505
+    ],
+    "/media/web-crisostomo-protacio.webp": [
+      676,
+      900
+    ],
+    "/media/web-crisostomo-setas.webp": [
+      332,
+      520
+    ]
+  }
+}

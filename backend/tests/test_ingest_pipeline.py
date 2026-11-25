@@ -182,8 +182,8 @@ def test_parse_writes_review_files(dirs):
 
     rows = read_csv_rows(dirs.reviewed_csv)
     assert [(r["shortcode"], r["food_item"], r["calories"], r["action"]) for r in rows] == [
-        ("SC1", "Yumburger", "280", "load"),
-        ("SC1", "Jolly Spaghetti", "480", "load"),
+        ("SC1", "Yumburger", "280", "skip"),
+        ("SC1", "Jolly Spaghetti", "480", "skip"),
         ("SC2", "", "", "skip"),  # placeholder so the reviewer sees the empty post
     ]
     assert rows[0]["protein_g"] == "12" and rows[0]["verified"] == "no"
@@ -269,7 +269,7 @@ def test_read_reviewed_accepts_clean_rows(dirs):
     assert result.verified == [True, False]
     a, b = result.items
     assert (a.brand_slug, a.calories, a.protein_g) == ("jollibee", 1200, 12.0)
-    assert (b.serving_size, b.protein_g, b.source_post_url) == ("1 serving", None, "https://x/p/1/")
+    assert (b.serving_size, b.protein_g, b.source_post_url) == (None, None, "https://x/p/1/")
 
 
 @pytest.mark.db
@@ -312,7 +312,9 @@ async def test_unverified_load_never_overwrites_verified_row(dirs, db_session, m
     write_csv_rows(dirs.reviewed_csv, [_review_row(calories="999", verified="no")])
     await load_reviewed(dirs.reviewed_csv)
     write_csv_rows(dirs.reviewed_csv, [_review_row(calories="300", verified="yes")])  # human re-audit wins
-    await load_reviewed(dirs.reviewed_csv)
+    protected = await load_reviewed(dirs.reviewed_csv)
+    assert protected["written"] == 0
+    await load_reviewed(dirs.reviewed_csv, allow_verified_updates=True)
     row = (await db_session.execute(select(NutritionCatalog))).scalar_one()
     await db_session.refresh(row)
     assert (row.calories, row.is_verified) == (300, True)
@@ -457,4 +459,4 @@ def test_local_status(dirs):
     run_parse(dirs)
     status = local_status(dirs)
     assert status["posts_scraped"] == 2 and status["images"] == 2 and status["images_with_ocr"] == 1
-    assert status["reviewed_load"] == 1 and status["posts_not_in_review"] == 0
+    assert status["reviewed_load"] == 0 and status["posts_not_in_review"] == 1

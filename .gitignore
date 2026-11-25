@@ -16,3 +16,8 @@ Thumbs.db
 .vscode/
 .idea/
 backend/.pgdata/
+
+# Authorized source material and login sessions stay local.
+backend/source-data/
+*.session
+session-*
