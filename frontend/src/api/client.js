@@ -30,6 +30,12 @@ async function request(path, options = {}) {
   return body;
 }
 
+export function searchCatalog({ message, filters, signal }) {
+  return request("/api/v1/catalog-search", {
+    method: "POST", body: JSON.stringify({ message, filters }), signal,
+  });
+}
+
 export function chat({ message, lat, lng, radiusKm, signal, provider, filters, previousMessage }) {
   return request("/api/v1/chat", {
     method: "POST",

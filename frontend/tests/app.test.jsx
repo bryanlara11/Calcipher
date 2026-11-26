@@ -186,8 +186,8 @@ describe("meal search and cards", () => {
       answer: "Synthetic catalog matches are pending review", relaxation: { applied: false }, inspector: { generator_used: "template" },
     }));
     render(<App />);
-    await waitFor(() => expect(screen.getByRole("button", { name: "Find a meal" }).disabled).toBe(false));
-    await userEvent.click(screen.getByRole("button", { name: "Find a meal" }));
+    await userEvent.click(screen.getByRole("link", { name: "Chat" }));
+    await userEvent.click(screen.getByRole("button", { name: "Heavy snack" }));
     await screen.findByRole("region", { name: "Catalog matches pending review" });
     expect(screen.getByText("Synthetic test bowl")).toBeTruthy();
     expect(screen.getByText("Pending review; source values are not approved.")).toBeTruthy();
@@ -334,12 +334,12 @@ describe("meal search and cards", () => {
     await userEvent.click(screen.getByRole("button", { name: "Area & filters" }));
     expect(screen.queryByRole("checkbox", { name: "Only places with nutrition" })).toBeNull();
   });
-  it("cancels a pending meal search when its radius changes", async () => {
+  it("cancels a pending Chat request when its radius changes", async () => {
     let finish;
     fetch.mockImplementation(async url => url.includes("map-config") ? response({ provider: "osm" }) : new Promise(resolve => { finish = resolve; }));
     render(<App />);
-    await waitFor(() => expect(screen.getByRole("button", { name: "Find a meal" }).disabled).toBe(false));
-    await userEvent.click(screen.getByRole("button", { name: "Find a meal" }));
+    await userEvent.click(screen.getByRole("link", { name: "Chat" }));
+    await userEvent.click(screen.getByRole("button", { name: "Heavy snack" }));
     await userEvent.click(screen.getByRole("link", { name: "Nearby" }));
     await userEvent.click(screen.getByRole("button", { name: "Area & filters" }));
     fireEvent.change(screen.getByLabelText("Search radius"), { target: { value: "1500" } });
@@ -419,24 +419,35 @@ describe("home, goals and saved restaurants", () => {
     await userEvent.click(screen.getByRole("link", { name: "Find a meal" }));
     expect(screen.getByRole("heading", { name: "Search menus" })).toBeTruthy();
   });
-  it("keeps meal results on Search and shares their goal context with Chat", async () => {
-    fetch.mockImplementation(async url => response(url.includes("map-config") ? { provider: "osm" } : {
-      results: [], catalog_matches: [sample], answer: "Synthetic meal search response", relaxation: { applied: false },
-      inspector: { generator_used: "template", constraints: { max_calories: 500 } },
-    }));
+  it("keeps catalog searches, filters and results separate from Chat history and follow-ups", async () => {
+    fetch.mockImplementation(async url => response(url.includes("map-config") ? { provider: "osm" }
+      : url.endsWith("/catalog-search") ? { items: [sample], filters: { max_calories: 500 } }
+      : { results: [], answer: "Chat reply", relaxation: { applied: false } }));
     render(<App />);
     await waitFor(() => expect(screen.getByRole("button", { name: "Find a meal" }).disabled).toBe(false));
     await userEvent.click(screen.getByRole("button", { name: "Nutrition & budget" }));
     await userEvent.type(screen.getByLabelText(/Max calories/), "500");
+    await userEvent.type(screen.getByLabelText("Food or dish"), "chicken");
     await userEvent.click(screen.getByRole("button", { name: "Find a meal" }));
     await screen.findByRole("region", { name: "Meal search results" });
+    await userEvent.click(await screen.findByText(sample.brand_name, { selector: "summary strong" }));
     await screen.findByText("Synthetic test bowl");
     expect(window.location.hash).toBe("#/search");
-    const submitted = fetch.mock.calls.find(([url]) => url.endsWith("/chat"));
-    expect(JSON.parse(submitted[1].body).filters).toEqual({ max_calories: 500 });
+    const submitted = fetch.mock.calls.find(([url]) => url.endsWith("/catalog-search"));
+    expect(JSON.parse(submitted[1].body)).toEqual({ message: "chicken under 500 kcal", filters: { max_calories: 500 } });
+    expect(fetch.mock.calls.some(([url]) => url.endsWith("/chat"))).toBe(false);
     expect(screen.queryByAltText("CalCipher community pick seal")).toBeNull();
     await userEvent.click(screen.getByRole("link", { name: "Chat" }));
-    expect(screen.getByText("Synthetic meal search response")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Search for a meal" })).toBeTruthy(); // Chat is still empty
+    await userEvent.click(screen.getByRole("button", { name: "Heavy snack" }));
+    await screen.findByText("Chat reply");
+    const chatBody = JSON.parse(fetch.mock.calls.find(([url]) => url.endsWith("/chat"))[1].body);
+    expect(chatBody).not.toHaveProperty("previous_message");
+    expect(chatBody).not.toHaveProperty("filters");
+    await userEvent.click(screen.getByRole("link", { name: "Search" }));
+    expect(screen.getByText("1 menu item across 1 restaurant")).toBeTruthy();
+    expect(screen.getByLabelText("Food or dish").value).toBe("chicken");
+    expect(screen.queryByText("Chat reply")).toBeNull();
   });
   it("saves separate OSM identities, restores them after remount and removes a favorite", async () => {
     mockPlaces(); const view = render(<App />);
@@ -445,6 +456,7 @@ describe("home, goals and saved restaurants", () => {
     await screen.findByText("2 catalog locations nearby");
     await userEvent.click(screen.getByRole("button", { name: "List", exact: true }));
     await userEvent.click(screen.getByRole("button", { name: "Add Synthetic saved branch to favorites" }));
+    expect(screen.getByText("Added Synthetic saved branch to favorites.").closest("[aria-live=polite]")).toBeTruthy();
     await userEvent.click(screen.getByText("View 1 more branch"));
     await userEvent.click(screen.getByRole("button", { name: "Add Synthetic second branch to favorites" }));
     expect(JSON.parse(localStorage.getItem(FAVORITES_KEY))).toHaveLength(2);
@@ -453,6 +465,7 @@ describe("home, goals and saved restaurants", () => {
     view.unmount(); render(<App />);
     expect(screen.getByRole("heading", { name: "Synthetic second branch" })).toBeTruthy();
     await userEvent.click(screen.getByRole("button", { name: "Remove Synthetic saved branch from favorites" }));
+    expect(screen.getByText("Removed Synthetic saved branch from favorites.")).toBeTruthy();
     expect(screen.queryByRole("heading", { name: "Synthetic saved branch" })).toBeNull();
     expect(JSON.parse(localStorage.getItem(FAVORITES_KEY))).toHaveLength(1);
     await userEvent.click(screen.getByRole("button", { name: "Explore this area" }));
@@ -507,14 +520,13 @@ describe("home, goals and saved restaurants", () => {
   });
   it("saves a pending meal to a plan, restores it and removes it without inventing missing macros", async () => {
     fetch.mockImplementation(async url => response(url.includes("map-config") ? { provider: "osm" } : {
-      results: [], catalog_matches: [{ ...sample, calories_min: 446, calories: 576 }], answer: "Synthetic pending meal", relaxation: { applied: false },
-      inspector: { generator_used: "template", constraints: { max_calories: 500 } },
+      items: [{ ...sample, calories_min: 446, calories: 576 }], filters: {},
     }));
     const view = render(<App />);
     await waitFor(() => expect(screen.getByRole("button", { name: "Find a meal" }).disabled).toBe(false));
     await userEvent.click(screen.getByRole("button", { name: "Find a meal" }));
+    await userEvent.click(await screen.findByText("UI test fixture", { selector: "summary strong" }));
     await screen.findByText("Synthetic test bowl");
-    await userEvent.click(screen.getByText("UI test fixture", { selector: "summary strong" }));
     await userEvent.click(screen.getByText("Add to meal plan"));
     await userEvent.click(screen.getByRole("button", { name: "Save meal" }));
     await userEvent.click(screen.getByRole("link", { name: "Meal plan", exact: true }));
@@ -602,12 +614,11 @@ it("shows three alphabetically sorted restaurant brands first and expands the re
 it("submits a genuine rating action and does not create a badge from one vote", async () => {
   fetch.mockImplementation(async url => response(url.includes("map-config") ? {provider:"osm"}
     : url.includes("meal-ratings") ? {rating_count:1,rating_average:5,community_pick:false}
-    : {results:[],catalog_matches:[sample],answer:"One source menu",relaxation:{applied:false},inspector:{generator_used:"template"}}));
+    : {items:[sample],filters:{}}));
   render(<App />);
   await waitFor(()=>expect(screen.getByRole("button",{name:"Find a meal"}).disabled).toBe(false));
   await userEvent.click(screen.getByRole("button",{name:"Find a meal"}));
-  await screen.findByText("One source menu");
-  await userEvent.click(screen.getByText("UI test fixture",{selector:"summary strong"}));
+  await userEvent.click(await screen.findByText("UI test fixture",{selector:"summary strong"}));
   await userEvent.click(screen.getByText("Rate as a healthy choice"));
   await userEvent.click(screen.getByRole("button",{name:"5 stars"}));
   await screen.findByText("5.0/5 · 1 community rating");

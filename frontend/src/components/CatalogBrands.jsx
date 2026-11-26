@@ -1,6 +1,25 @@
 import { useEffect, useState } from "react";
 import { catalogBrands } from "../api/client.js";
-import { BrandMenu } from "./MapPopup.jsx";
+import { BrandMenu, MenuRecords } from "./MapPopup.jsx";
+
+function BrandMatches({ brand, items, goals }) {
+  const [open, setOpen] = useState(false);
+  return <details className="catalog-brand-browser" onToggle={event => setOpen(event.currentTarget.open)}>
+    <summary><strong>{brand}</strong> · {items.length} {items.length === 1 ? "item" : "items"}</summary>
+    {open && <MenuRecords items={items} goals={goals} />}
+  </details>;
+}
+
+export function CatalogSearchResults({ items, filters }) {
+  if (!items.length) return <p>No menu items match your search. Try a shorter term or adjust your filters.</p>;
+  const groups = new Map();
+  for (const item of items) {
+    if (!groups.has(item.brand_name)) groups.set(item.brand_name, []);
+    groups.get(item.brand_name).push(item);
+  }
+  return <><p>{items.length} menu {items.length === 1 ? "item" : "items"} across {groups.size} {groups.size === 1 ? "restaurant" : "restaurants"}</p>
+    {Array.from(groups, ([brand, matches]) => <BrandMatches key={brand} brand={brand} items={matches} goals={filters} />)}</>;
+}
 
 function BrandPicker({ goals }) {
   const [brands, setBrands] = useState([]);

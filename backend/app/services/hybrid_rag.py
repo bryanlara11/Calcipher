@@ -37,7 +37,7 @@ from app.services.overpass_client import EARTH_RADIUS_KM, BranchDiscoveryService
 from app.services.discovery_fallback import OsmFirstDiscovery
 from app.services.google_places import GooglePlacesDiscovery
 from app.services.query_parser import QueryParser
-from app.services.food_matching import food_pattern, question_field, search_order
+from app.services.food_matching import catalog_patterns, food_pattern, question_field, search_order
 from app.services.meal_answers import direct_answer, snack_answer, help_answer
 
 TOP_K = 5
@@ -145,13 +145,15 @@ MAP_ITEMS_SQL = text(_MAP_QUERY.format(branches=_LEGACY_FROM))
 PLACES_RETRIEVAL_SQL = text(_RETRIEVAL_QUERY.format(branches=_PLACES_FROM))
 PLACES_MAP_SQL = text(_MAP_QUERY.format(branches=_PLACES_FROM))
 
-BRAND_ITEMS_SQL = text(
-    """
+_CATALOG_SELECT = """
 SELECT id AS item_id, brand_name, food_item,
        COALESCE(CAST(provenance->'calorie_bounds'->>1 AS numeric), calories) AS calories,
        protein_g, carbs_g, fat_g, serving_size,
        is_verified, source_post_url, price_php, price_source_url, source_images, provenance
 FROM nutrition_catalog
+"""
+
+BRAND_ITEMS_SQL = text(_CATALOG_SELECT + """
 WHERE brand_slug = :brand_slug AND is_active AND (is_verified OR CAST(:include_pending AS boolean))
 ORDER BY calories ASC
 LIMIT 250
@@ -300,6 +302,43 @@ async def nearby_branches(
 
 async def brand_items(session: AsyncSession, brand_slug: str, *, include_pending: bool = False) -> list[CatalogItem]:
     rows = (await session.execute(BRAND_ITEMS_SQL, {"brand_slug": brand_slug, "include_pending": include_pending})).mappings().all()
+    return _catalog_items(rows)
+
+
+# Serving sizes and menu notes such as "With Rice and Drink" describe what an item includes, so
+# search reads them. Clauses about what is left out ("no rice", "rice excluded") or about sourcing and review
+# ("rice weight is not established by the source") are dropped first so they don't match.
+NOTE_NOISE = (r"[^.;,]*\m(?:no|excluded|without|not included|establish\w*|review\w*|transcri\w*"
+              r"|sources?|evidence|illustration|prices?)\M[^.;,]*")
+
+
+async def search_catalog(session: AsyncSession, constraints: SearchConstraints) -> list[CatalogItem]:
+    patterns, match_any = catalog_patterns(constraints.semantic_query, constraints.target_brand)
+    query = text(_CATALOG_SELECT + r"""
+        WHERE is_active AND (CAST(:brand AS text) IS NULL OR brand_slug = :brand)
+          AND (CAST(:max_cal AS integer) IS NULL OR calories <= :max_cal)
+          AND (CAST(:protein AS numeric) IS NULL OR protein_g >= :protein)
+          AND (CAST(:price AS numeric) IS NULL OR (is_verified AND price_source_url IS NOT NULL AND price_php <= :price))
+          AND COALESCE((
+              SELECT CASE WHEN :match_any THEN bool_or(hit) ELSE bool_and(hit) END
+              FROM unnest(CAST(:patterns AS text[])) AS term(pattern)
+              CROSS JOIN LATERAL (SELECT (
+                  translate(lower(food_item), 'áéíóúñ', 'aeioun') ~ pattern
+                  OR regexp_replace(translate(lower(concat_ws(', ', serving_size, provenance->>'notes')),
+                                              'áéíóúñ', 'aeioun'), :note_noise, '', 'g')
+                     ~ ('\m' || pattern)
+              ) AS hit) AS matches
+          ), TRUE)
+        ORDER BY lower(brand_name), lower(food_item), serving_size, id
+    """)
+    rows = (await session.execute(query, {
+        "patterns": patterns, "match_any": match_any, "brand": constraints.target_brand, "note_noise": NOTE_NOISE,
+        "max_cal": constraints.max_calories, "protein": constraints.min_protein_g, "price": constraints.max_price_php,
+    })).mappings().all()
+    return _catalog_items(rows)
+
+
+def _catalog_items(rows) -> list[CatalogItem]:
     return [
         CatalogItem(
             item_id=str(r["item_id"]),

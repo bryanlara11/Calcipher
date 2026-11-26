@@ -50,12 +50,41 @@ def question_field(query: str) -> str | None:
     if re.search(r"\bfat\b", query): return "fat_g"
     return "calories"
 
-def food_pattern(query: str, brand: str | None = None) -> str | None:
+def _without_brand(query: str, brand: str | None) -> str:
     normalized = normalize_brand(query)
     if brand:
         names = [normalize_brand(brand), *[alias for alias, slug in BRAND_ALIASES.items() if slug == brand]]
         for name in sorted(names, key=len, reverse=True):
             normalized = re.sub(r"\b" + re.escape(name) + r"\b", " ", normalized)
+    return normalized
+
+
+def catalog_patterns(query: str, brand: str | None) -> tuple[list[str], bool]:
+    """Build bound PostgreSQL patterns for literal menu searches, retaining portion counts."""
+    normalized = _without_brand(query, brand)
+    tokens = re.findall(r"\d+\s*(?:pieces?|pcs?)\b|[a-z]+|\d+", normalized)
+    descriptors = {"fried", "grilled", "steamed", "spicy", "sweet", "savory", "vegetarian",
+                   "vegan", "large", "small", "breakfast", "lunch", "dinner"}
+    patterns = []
+    for token in dict.fromkeys(tokens):
+        quantity = re.fullmatch(r"(\d+)\s*(?:pieces?|pcs?)", token)
+        if quantity:
+            patterns.append(r"\m" + quantity[1] + r"[[:space:].‐‑–—-]*(?:pcs?|pieces?)\M")
+        elif token.isdigit():
+            patterns.append(r"\m" + token + r"\M")
+        elif token in {"snack", "snacks"}:
+            patterns.append("(?:" + "|".join(sorted(SNACK_WORDS)) + ")")
+        elif token not in GENERIC or token in descriptors:
+            words = sorted(ALIASES.get(token, {token}))
+            # Words of four letters or more match inside names ("chicken" finds "McChicken");
+            # shorter ones match whole words so "pie" skips "piece" and "tea" skips "steak".
+            alternatives = [re.escape(w) if len(w) > 3 else r"\m" + re.escape(w) + r"(?:e?s)?\M" for w in words]
+            patterns.append("(?:" + "|".join(alternatives) + ")")
+    return patterns, "or" in tokens
+
+
+def food_pattern(query: str, brand: str | None = None) -> str | None:
+    normalized = _without_brand(query, brand)
     words = set(re.findall(r"[a-z]+", normalized)) - GENERIC
     snack = bool(re.search(r"\bsnacks?\b", normalized))
     if not words and not snack:

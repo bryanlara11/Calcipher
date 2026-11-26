@@ -1,6 +1,12 @@
 /* Shared app navigation and the food/menu views. Theme colors live in index.css. */
 .page-shell { display: block; padding: 0; }
 .page-body { grid-column: auto; width: 100%; }
+.action-notice { position: fixed; z-index: 1300; right: 20px; bottom: 20px; max-width: min(26rem, calc(100vw - 40px)); pointer-events: none; }
+.action-notice span { display: block; padding: 10px 16px; border-radius: 8px; background: rgb(var(--ink)); color: rgb(var(--surface)); box-shadow: 0 3px 12px #0002; overflow-wrap: anywhere; }
+.search-results .catalog-brand-browser { margin: 0; padding: 0; border-top: 0; }
+@media (max-width: 760px) {
+  .action-notice { bottom: calc(80px + env(safe-area-inset-bottom)); }
+}
 .app-header { position: sticky; top: 0; z-index: 1200; background: rgb(var(--surface)); border-bottom: 1px solid rgb(var(--line)); }
 .app-header-inner { display: flex; align-items: center; gap: 30px; min-height: 88px; max-width: 1180px; padding: 0 32px; margin: 0 auto; }
 .app-brand { display: block; flex: 0 0 96px; }

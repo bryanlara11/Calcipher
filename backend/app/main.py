@@ -20,8 +20,11 @@ from app.config import Settings, get_settings
 from app.models import PH_LAT_MAX, PH_LAT_MIN, PH_LNG_MAX, PH_LNG_MIN
 from app.db.session import dispose_engine, get_engine, get_session, get_sessionmaker, init_db
 from app.schemas import (
+    DEFAULT_DISTANCE_KM,
     MAX_DISTANCE_KM,
     BrandItemsResponse,
+    CatalogSearchRequest,
+    CatalogSearchResponse,
     ChatRequest,
     ChatResponse,
     MapItemsRequest,
@@ -29,21 +32,21 @@ from app.schemas import (
     MealRatingRequest,
 )
 from app.db.maintenance import count_stale_embeddings
-from app.security import MacroPhysicsError, SlidingWindowRateLimiter
+from app.security import MacroPhysicsError, SlidingWindowRateLimiter, validate_macro_physics
 from app.services.brand_matcher import BrandRegistry, load_brand_matcher, normalize_brand
 from app.services.embedder import get_embedder
 from app.services.generator import GroundedGenerator
-from app.services.hybrid_rag import HybridRagService, brand_items
+from app.services.hybrid_rag import HybridRagService, brand_items, search_catalog
 from app.services.llm import GeminiClient, LLMClient
 from app.services.discovery_fallback import OsmFirstDiscovery
 from app.services.google_places import GooglePlacesDiscovery, PlacesQuotaLimited, PlacesUnavailable
-from app.services.query_parser import QueryParser
+from app.services.query_parser import QueryParser, RegexConstraintParser
 from app.services.meal_ratings import attach_ratings, save_rating
 from app.services.overpass_client import BranchDiscoveryService, OverpassClient
 
 logger = logging.getLogger("calcipher")
 
-RATE_LIMITED_PREFIXES = ("/api/v1/chat", "/api/v1/map-items", "/api/v1/brands", "/api/v1/meal-ratings")
+RATE_LIMITED_PREFIXES = ("/api/v1/chat", "/api/v1/catalog-search", "/api/v1/map-items", "/api/v1/brands", "/api/v1/meal-ratings")
 
 
 def build_rag_service(settings: Settings, brands: BrandRegistry, provider: str = "google") -> HybridRagService:
@@ -265,6 +268,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             FROM nutrition_catalog WHERE is_active GROUP BY brand_slug ORDER BY lower(min(brand_name))
         """))).mappings().all()
         return {"brands": [dict(row) for row in rows]}
+
+    @app.post("/api/v1/catalog-search", response_model=CatalogSearchResponse)
+    async def catalog_search(body: CatalogSearchRequest, session: SessionDep, rag: RagDep):
+        constraints, _, _ = RegexConstraintParser().parse(body.message, rag.brands.matcher, DEFAULT_DISTANCE_KM)
+        if body.filters:
+            constraints = constraints.model_copy(update=body.filters.model_dump(exclude_none=True))
+        validate_macro_physics(constraints)
+        items = await search_catalog(session, constraints)
+        return {"items": await attach_ratings(session, items), "filters": constraints.model_dump(include={
+            "max_calories", "min_protein_g", "max_price_php"})}
 
     @app.post("/api/v1/chat", response_model=ChatResponse)
     async def chat(body: ChatRequest, request: Request, session: SessionDep, rag: RagDep) -> ChatResponse:

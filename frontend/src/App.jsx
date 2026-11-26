@@ -1,12 +1,12 @@
 import { RatingsContext, useMealRatings } from "./ratings.js";
-import CatalogBrands from "./components/CatalogBrands.jsx";
+import CatalogBrands, { CatalogSearchResults } from "./components/CatalogBrands.jsx";
 import { usePreferences } from "./preferences.js";
 import { restaurantCategory, RESTAURANT_CATEGORIES } from "./restaurantCategories.js";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import CalorieMap from "./components/CalorieMap.jsx";
-import ChatPanel, { MealResults } from "./components/ChatPanel.jsx";
+import ChatPanel from "./components/ChatPanel.jsx";
 import RagInspector from "./components/RagInspector.jsx";
-import { browserMapsKey, chat, mapConfig, mapItems } from "./api/client.js";
+import { browserMapsKey, chat, mapConfig, mapItems, searchCatalog } from "./api/client.js";
 import { BrandLogo, CloseButton, Icon } from "./components/Brand.jsx";
 import { useTheme } from "./components/ThemeControl.jsx";
 import MealSearch from "./components/MealSearch.jsx";
@@ -32,9 +32,21 @@ const messageId = () => globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Ma
 export default function App() {
   const appearance = useTheme();
   const [preferences, setPreference] = usePreferences();
-  const mealPlan = useMealPlan();
+  const [notice, setNotice] = useState(null);
+  const notify = useCallback(text => setNotice({ text }), []);
+  useEffect(() => {
+    if (!notice) return;
+    const timeout = setTimeout(() => setNotice(null), 3500);
+    return () => clearTimeout(timeout);
+  }, [notice]);
+  const mealPlan = useMealPlan(notify);
   const mealRatings = useMealRatings();
-  const { favorites, isFavorite, toggleFavorite, storageUnavailable } = useFavorites();
+  const { favorites, isFavorite, toggleFavorite: changeFavorite, storageUnavailable } = useFavorites();
+  function toggleFavorite(pin) {
+    if (changeFavorite(pin)) {
+      notify(isFavorite(pin) ? `Removed ${pin.poi_name} from favorites.` : `Added ${pin.poi_name} to favorites.`);
+    }
+  }
   const [page, setPage] = useState(currentPage);
   const [config, setConfig] = useState(null);
   const [configError, setConfigError] = useState(null);
@@ -46,6 +58,9 @@ export default function App() {
   const [searchResponse, setSearchResponse] = useState(null);
   const [searchError, setSearchError] = useState(null);
   const [searchStarted, setSearchStarted] = useState(false);
+  const [searchBusy, setSearchBusy] = useState(false);
+  const catalogRequest = useRef(null);
+  useEffect(() => () => catalogRequest.current?.abort(), []);
   const [activeGoals, setActiveGoals] = useState({});
   const searchResultsRef = useRef(null);
   useEffect(() => {
@@ -178,8 +193,6 @@ export default function App() {
     setGeoError(null);
     cancelSearch();
     setLastChat(null);
-    setSearchResponse(null);
-    setSearchStarted(false);
     setMapData(null);
     setSearchViewport(nextSearchViewport);
     setLocation(next);
@@ -232,8 +245,6 @@ export default function App() {
     if (meters === radiusMeters) return;
     cancelSearch();
     setLastChat(null);
-    setSearchResponse(null);
-    setSearchStarted(false);
     setMapData(null);
     setSearchViewport(viewport);
     setRadiusMeters(meters);
@@ -286,9 +297,26 @@ export default function App() {
     locationPermission().then(state => { if (state === "granted") locateDeviceRef.current(); });
   }, [page, config, preferences.locationEnabled]);
 
-  async function send(text, { fromSearch = false, filters } = {}) {
+  async function searchMenus(message, filters) {
+    catalogRequest.current?.abort();
+    const ctrl = new AbortController();
+    catalogRequest.current = ctrl;
+    setSearchStarted(true);
+    setSearchBusy(true);
+    setSearchResponse(null);
+    setSearchError(null);
+    try {
+      const response = await searchCatalog({ message, filters, signal: ctrl.signal });
+      if (!ctrl.signal.aborted) setSearchResponse(response);
+    } catch (error) {
+      if (!ctrl.signal.aborted) setSearchError(error.code === "network" ? `Backend unreachable: ${error.message}` : error.message);
+    } finally {
+      if (!ctrl.signal.aborted) setSearchBusy(false);
+    }
+  }
+
+  async function send(text) {
     if (chatRequest.current) return;
-    if (fromSearch) { setSearchStarted(true); setSearchResponse(null); setSearchError(null); }
     const ctrl = new AbortController();
     const searchContext = { ...location, radiusKm, provider };
     chatRequest.current = ctrl;
@@ -297,12 +325,11 @@ export default function App() {
     try {
       const previous = [...messages].reverse().find(m => m.role === "assistant" && m.requestText && m.searchContext
         && ["lat", "lng", "radiusKm", "provider"].every(key => m.searchContext[key] === searchContext[key]));
-      const response = await chat({ provider, message: text, ...location, radiusKm, signal: ctrl.signal, filters,
-        previousMessage: fromSearch ? undefined : previous?.requestText });
+      const response = await chat({ provider, message: text, ...location, radiusKm, signal: ctrl.signal,
+        previousMessage: previous?.requestText });
       if (ctrl.signal.aborted) return;
       setLastChat(response);
       setActiveGoals(response.inspector?.constraints ?? {});
-      if (fromSearch) setSearchResponse(response);
       const context = response.inspector?.constraints;
       const requestText = context ? [context.semantic_query, context.target_brand,
         context.max_calories != null && `under ${context.max_calories} kcal`,
@@ -319,7 +346,6 @@ export default function App() {
         : e.code === "network" ? "Backend unreachable"
         : "Search failed";
       setMessages((m) => [...m, { id: messageId(), role: "error", title, text: e.message }]);
-      if (fromSearch) setSearchError(`${title}: ${e.message}`);
     } finally {
       if (chatRequest.current === ctrl) { chatRequest.current = null; setBusy(false); }
     }
@@ -382,15 +408,14 @@ export default function App() {
             <section className="search-sheet">
               <h1 ref={heading} tabIndex={-1}>Search menus</h1>
               <p className="page-lead">Look up a dish or browse by restaurant.</p>
-              <MealSearch savedValues={formValues} onValuesChange={setFormValues} busy={busy || !config} onSearch={(query, filters) => send(query, { fromSearch: true, filters })} />
-              <a className="search-location-link" href="#/nearby"><Icon name="pin" size={17} />Choose your search area<Icon name="arrow" size={17} /></a>
+              <MealSearch savedValues={formValues} onValuesChange={setFormValues} busy={searchBusy} onSearch={searchMenus} />
             </section>
-            <CatalogBrands goals={activeGoals} />
             {searchStarted && <section ref={searchResultsRef} className="search-results" aria-label="Meal search results"><h2>Meal results</h2>
-              {busy && <p role="status">Finding meals near your pin…</p>}
+              {searchBusy && <p role="status">Searching menus…</p>}
               {searchError && <p role="alert" className="page-alert">{searchError}</p>}
-              {searchResponse && <MealResults response={searchResponse} onLocate={locate} isFavorite={isFavorite} onToggleFavorite={toggleFavorite} />}
+              {searchResponse && <CatalogSearchResults items={searchResponse.items} filters={searchResponse.filters} />}
             </section>}
+            <CatalogBrands goals={searchResponse?.filters} />
           </div>}
           {page === "nearby" && <section className="nearby-layout">
             <div className="page-title-row"><div><h1 ref={heading} tabIndex={-1}>Nearby restaurants</h1><p className="page-lead">Find a branch, look through its menu or save it for later.</p></div><button className="button-secondary" type="button" aria-expanded={filtersOpen} aria-controls="area-controls" onClick={() => setFiltersOpen(v => !v)}><Icon name="filter" size={18} />Area & filters</button></div>
@@ -431,6 +456,7 @@ export default function App() {
 
         </main>
       </div>
+      <div className="action-notice" aria-live="polite" aria-atomic="true">{notice && <span>{notice.text}</span>}</div>
 
     </div></MealPlanContext.Provider></RatingsContext.Provider>
   );

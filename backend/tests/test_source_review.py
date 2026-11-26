@@ -5,7 +5,7 @@ from pathlib import Path
 
 import httpx
 import pytest
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 
 from app.collect_sources import CollectionStopped, collect_entries, parse_entry
 from app.ingest import load_reviewed, read_reviewed
@@ -13,10 +13,39 @@ from app.models import NutritionCatalog
 from app.schemas import SearchConstraints
 from app.services.brand_matcher import load_brand_matcher
 from app.services.embedder import HashingEmbedder
-from app.services.hybrid_rag import brand_items, nearby_branches, retrieve
+from app.services.hybrid_rag import brand_items, nearby_branches, retrieve, search_catalog
 from app.services.source_review import prepare_review
 from tests.conftest import UPM_LAT, UPM_LNG, add_branch, add_item
 from tests.test_ingest_pipeline import _use_test_db
+
+
+@pytest.mark.db
+async def test_catalog_search_includes_compounds_notes_and_equivalent_portions(db_session):
+    for name, brand, serving in [
+        ("2-pc. Chickenjoy", "Jollibee", "1 serving"), ("McChicken", "McDonald's", "1 serving"),
+        ("Dumplings", "Fixture", "2 pieces"), ("12pc Chicken", "Fixture", "1 serving"),
+        ("Pork Bowl", "Fixture", "1 serving"), ("Roll", "Fixture", "1 serving"),
+        ("Katsu Curry", "Fixture", "1 serving"), ("Apple Pie", "Fixture", "1 piece"),
+        ("Roast Quarter", "Fixture", "1/4 chicken, no skin, no rice"),
+    ]:
+        await add_item(db_session, brand_name=brand, brand_slug=brand.lower(), food_item=name,
+                       serving_size=serving, calories=400, verified=False)
+    for name, note in [("Pork Bowl", "With Rice and Drink"), ("Roll", "Historical price only; rice excluded"),
+                       ("Katsu Curry", "Rice weight/inclusion is not established by the calorie source.")]:
+        await db_session.execute(update(NutritionCatalog).where(NutritionCatalog.food_item == name)
+                                 .values(provenance={"notes": note}))
+
+    async def names(query, **filters):
+        items = await search_catalog(db_session, SearchConstraints(semantic_query=query, **filters))
+        return {item.food_item for item in items}
+
+    assert await names("chicken") == {"2-pc. Chickenjoy", "McChicken", "12pc Chicken", "Roast Quarter"}
+    assert await names("rice") == {"Pork Bowl"}
+    for query in ["2pc", "2-pc", "2 pieces", "2 pcs."]:
+        assert await names(query) == {"2-pc. Chickenjoy", "Dumplings"}
+    assert await names("chicken 2pc") == {"2-pc. Chickenjoy"}
+    assert await names("pie") == {"Apple Pie"}
+    assert await names("chicken", max_calories=399) == set()
 
 
 def candidate(**changes):
