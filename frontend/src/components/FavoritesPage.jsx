@@ -22,6 +22,6 @@ export default function FavoritesPage({ headingRef, favorites, provider, onExplo
   return <section className="favorites-page"><h1 ref={headingRef} tabIndex={-1}>Your favorites</h1><p className="page-lead">Restaurants saved on this device, ready for your next meal.</p>
     {storageUnavailable && <p role="status" className="page-alert">This browser cannot save favorites between visits. You can still use them during this visit.</p>}
     {favorites.length ? <div className="favorites-grid">{favorites.map(pin => <SavedRestaurant key={branchKey(pin)} pin={pin} provider={provider} onExplore={onExplore} onToggle={onToggle} goals={goals} />)}</div>
-      : <div className="favorites-empty"><Icon name="heart" size={36} /><h2>Keep your go-to places here.</h2><p>Tap the heart on a restaurant in Nearby or a meal result to save it.</p><a className="button-primary" href="#/nearby">Find restaurants<Icon name="arrow" size={18} /></a></div>}
+      : <div className="favorites-empty"><Icon name="heart" size={36} /><h2>Keep your go-to places here</h2><p>Tap the heart on a restaurant in Nearby or a meal result to save it.</p><a className="button-primary" href="#/nearby">Find restaurants<Icon name="arrow" size={18} /></a></div>}
   </section>;
 }

@@ -13,7 +13,7 @@ export default {
         warn: "rgb(var(--danger) / <alpha-value>)",
       },
       fontFamily: {
-        sans: ['-apple-system', 'BlinkMacSystemFont', '"Segoe UI"', 'Arial', 'sans-serif'],
+        sans: ['"Figtree Variable"', '-apple-system', 'BlinkMacSystemFont', '"Segoe UI"', 'Arial', 'sans-serif'],
       },
       fontSize: {
         xs: ["var(--text-small)", { lineHeight: "1.6" }],

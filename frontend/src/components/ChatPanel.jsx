@@ -19,7 +19,7 @@ const SOURCE_LABELS = { official: "Brand-published nutrition", community_reporte
 export function NutritionPanel({ item, index, onLocate, preview = false, goals, isFavorite, onToggleFavorite }) {
   return <article className="nutrition-card">
     <SourcePhoto item={item} />
-    <div className="nutrition-heading flex items-start justify-between gap-3"><div><p className="eyebrow mb-2">{item.brand_name}</p><h2>{item.food_item}</h2></div>{preview ? <span className="text-sm text-slate-mute">Pending review</span> : <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-mango text-xs font-bold text-white" aria-label={`Map pin ${index}`}>{index}</span>}</div>
+    <div className="nutrition-heading flex items-start justify-between gap-3"><div><p className="eyebrow mb-2">{item.brand_name}</p><h2>{item.food_item}</h2></div>{preview ? <span className="text-sm text-slate-mute">Pending review</span> : <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-mango text-xs font-medium text-white" aria-label={`Map pin ${index}`}>{index}</span>}</div>
     <p className="mt-2 text-xs text-slate-mute">{item.serving_size || "Serving size unavailable"}</p>
     <GoalBadge item={item} goals={goals} />
     {item.source_classification && <p className="mt-1 text-sm text-slate-mute">{SOURCE_LABELS[item.source_classification]}</p>}
@@ -47,7 +47,7 @@ function Message({ msg, onLocate, searchContext, isFavorite, onToggleFavorite })
   if (msg.role === "error") {
     return (
       <div className="border-l-4 border-warn bg-label px-3 py-2 text-sm" role="alert">
-        <p className="font-bold text-warn">{msg.title}</p>
+        <p className="font-medium text-warn">{msg.title}</p>
         <p>{msg.text}</p>
       </div>
     );
@@ -137,7 +137,7 @@ export default function ChatPanel({ messages, onSend, busy, onLocate, searchCont
             value={draft}
             maxLength={500}
             onChange={(e) => setDraft(e.target.value)}
-            placeholder="Ask about a meal…"
+            placeholder="Ask about a meal"
             className="chat-input"
           />
           <button

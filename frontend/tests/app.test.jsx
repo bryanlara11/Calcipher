@@ -412,7 +412,7 @@ describe("home, goals and saved restaurants", () => {
     : { branches: [pin, { ...pin, osm_type: "way", poi_name: "Synthetic second branch" }], discovery: { source: "cache", error: null } }));
   it("opens Home by default and explains how to start a meal search", async () => {
     window.history.replaceState(null, "", "/"); render(<App />);
-    expect(screen.getByRole("heading", { name: "Find your next meal." })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Calorie-counted meals near you" })).toBeTruthy();
     await userEvent.click(screen.getByText("How it works", { exact: true }));
     expect(screen.getByRole("heading", { name: "Pick a place" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "About menu data" })).toBeTruthy();

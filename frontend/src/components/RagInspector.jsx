@@ -9,7 +9,7 @@ function Row({ k, children }) {
   return (
     <div className="inspector-row">
       <dt className="text-slate-mute">{k}</dt>
-      <dd className="num text-right font-semibold">{children}</dd>
+      <dd className="num text-right font-medium">{children}</dd>
     </div>
   );
 }
@@ -17,7 +17,7 @@ function Row({ k, children }) {
 function Discovery({ d, title }) {
   return (
     <div>
-      <h2 className="mb-1 font-bold">{title}</h2>
+      <h2 className="mb-1 font-medium">{title}</h2>
       <dl className="text-sm">
         <Row k="Provider">{d.provider === "osm" ? "OpenStreetMap" : d.provider === "google" ? "Google Places" : "Unknown"}</Row>
         <Row k="Source">{SOURCE_TEXT[d.source] ?? d.source}</Row>
@@ -39,7 +39,7 @@ function Timings({ timings }) {
   const colors = { parse: "var(--forest)", discovery: "var(--mustard)", embed: "var(--coral)", retrieval: "var(--olive)", generation: "var(--tomato)" };
   return (
     <div>
-      <h2 className="mb-1 font-bold">Stage timings ({total.toFixed(0)} ms)</h2>
+      <h2 className="mb-1 font-medium">Stage timings ({total.toFixed(0)} ms)</h2>
       <div className="flex h-3 overflow-hidden rounded-sm border border-ink" role="img" aria-label="Stage timing breakdown">
         {stages.map((s) => (
           <div key={s} style={{ width: `${(timings[s] / total) * 100}%`, background: colors[s] }} />
@@ -70,7 +70,7 @@ export default function RagInspector({ open, onToggle, onClose, chat, map }) {
           type="button"
           onClick={onToggle}
           aria-expanded={open}
-          className="flex h-full min-w-0 flex-1 items-center justify-between gap-2 px-4 text-left font-bold"
+          className="flex h-full min-w-0 flex-1 items-center justify-between gap-2 px-4 text-left font-medium"
         >
           <span className="truncate">Retrieval inspector</span>
           <span className="shrink-0 text-sm font-normal text-slate-mute">
@@ -100,7 +100,7 @@ export default function RagInspector({ open, onToggle, onClose, chat, map }) {
               <Discovery key={i} d={d} title={i === 0 ? "Chat: restaurant discovery" : "Chat: widened discovery"} />
             ))}
             <div>
-              <h2 className="mb-1 font-bold">Parsed constraints ({insp.parser_used})</h2>
+              <h2 className="mb-1 font-medium">Parsed constraints ({insp.parser_used})</h2>
               <dl className="text-sm">
                 <Row k="Max calories">{c.max_calories ?? "none"}</Row>
                 <Row k="Max price (PHP)">{c.max_price_php ?? "none"}</Row>
@@ -116,7 +116,7 @@ export default function RagInspector({ open, onToggle, onClose, chat, map }) {
               )}
             </div>
             <div>
-              <h2 className="mb-1 font-bold">Hybrid retrieval</h2>
+              <h2 className="mb-1 font-medium">Hybrid retrieval</h2>
               <dl className="text-sm">
                 <Row k="Approved matches">{insp.candidate_count}</Row>
                 <Row k="Pending catalog matches">{insp.catalog_candidate_count ?? 0}</Row>
