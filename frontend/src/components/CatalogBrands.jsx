@@ -10,14 +10,15 @@ function BrandMatches({ brand, items, goals }) {
   </details>;
 }
 
-export function CatalogSearchResults({ items, filters }) {
-  if (!items.length) return <p>No menu items match your search. Try a shorter term or adjust your filters.</p>;
+// `summary={false}` when the caller already states the counts (Chat's answer text does).
+export function CatalogSearchResults({ items, filters, summary = true }) {
+  if (!items.length) return summary ? <p>No menu items match your search. Try a shorter term or adjust your filters.</p> : null;
   const groups = new Map();
   for (const item of items) {
     if (!groups.has(item.brand_name)) groups.set(item.brand_name, []);
     groups.get(item.brand_name).push(item);
   }
-  return <><p>{items.length} menu {items.length === 1 ? "item" : "items"} across {groups.size} {groups.size === 1 ? "restaurant" : "restaurants"}</p>
+  return <>{summary && <p>{items.length} menu {items.length === 1 ? "item" : "items"} across {groups.size} {groups.size === 1 ? "restaurant" : "restaurants"}</p>}
     {Array.from(groups, ([brand, matches]) => <BrandMatches key={brand} brand={brand} items={matches} goals={filters} />)}</>;
 }
 

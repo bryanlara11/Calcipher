@@ -30,12 +30,15 @@ export function BrandMenu({ slug, includePending = false, goals }) {
   </div>;
 }
 
-export function MenuRecords({ items, goals }) {
-  return <ul className="menu-records" aria-label="Menu nutrition records">
-      {items.map(item => <li key={item.item_id} className="menu-record">
+// `ranked` keeps the server's order as a numbered list and names each item's restaurant, for
+// cross-restaurant rankings such as "highest protein".
+export function MenuRecords({ items, goals, ranked = false, label = "Menu nutrition records" }) {
+  const List = ranked ? "ol" : "ul";
+  return <List className={`menu-records${ranked ? " menu-records-ranked" : ""}`} aria-label={label}>
+      {items.map((item, index) => <li key={item.item_id} className="menu-record">
         <SourcePhoto item={item} />
         <div className="menu-record-heading">
-          <h3>{item.food_item}</h3>
+          <h3>{ranked && <span className="menu-record-rank num">{index + 1}.</span>}{item.food_item}{ranked && <small className="menu-record-brand">{item.brand_name}</small>}</h3>
           <p className="menu-energy"><strong className="num">{formatCalories(item)}</strong><span>kcal</span></p>
         </div>
         <div className="menu-record-status"><span className="review-pill">{item.is_verified ? "Checked against source" : "Pending review"}</span></div>
@@ -54,7 +57,7 @@ export function MenuRecords({ items, goals }) {
           </div>
         </footer>
       </li>)}
-    </ul>;
+    </List>;
 }
 
 export function BranchPopup({ pin, goals, isFavorite, onToggleFavorite }) {

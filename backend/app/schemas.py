@@ -19,15 +19,36 @@ Latitude = Annotated[float, Field(ge=PH_LAT_MIN, le=PH_LAT_MAX, description="WGS
 Longitude = Annotated[float, Field(ge=PH_LNG_MIN, le=PH_LNG_MAX, description="WGS84 longitude in the PH")]
 
 
+# The nutrients stored in nutrition_catalog. Sorting and ranking accept only these names; the
+# catalog has no fiber, sugar or sodium columns.
+Nutrient = Literal["calories", "protein_g", "carbs_g", "fat_g"]
+SortDirection = Literal["asc", "desc"]
+Grams = Annotated[float, Field(ge=0, le=500, allow_inf_nan=False)]
+
+
 class SearchConstraints(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     max_calories: int | None = Field(None, ge=0, le=10_000)
+    min_calories: int | None = Field(None, ge=0, le=10_000)
     max_price_php: float | None = Field(None, ge=0, le=99999999.99, allow_inf_nan=False)
     min_protein_g: float | None = Field(None, ge=0, le=500)
+    max_protein_g: Grams | None = None
+    min_carbs_g: Grams | None = None
+    max_carbs_g: Grams | None = None
+    min_fat_g: Grams | None = None
+    max_fat_g: Grams | None = None
+    # Deterministic ranking ("highest protein", "low carb"); items missing this nutrient are excluded.
+    sort_by: Nutrient | None = None
+    sort_direction: SortDirection | None = None
     max_distance_km: float = Field(DEFAULT_DISTANCE_KM, gt=0, le=MAX_DISTANCE_KM)
     target_brand: str | None = Field(None, max_length=255)
     semantic_query: str = Field("", max_length=MAX_QUERY_LENGTH)
+
+
+class NutrientRanking(BaseModel):
+    field: Nutrient
+    direction: SortDirection
 
 
 # ---------- requests ----------
@@ -146,6 +167,10 @@ class ChatResponse(BaseModel):
     results: list[RetrievedItem]
     catalog_matches: list[RetrievedItem] = Field(default_factory=list)
     catalog_answers: list[CatalogItem] = Field(default_factory=list)
+    # Catalog-wide matches (the same retrieval as Search). Ranked in order when `ranking` is set.
+    menu_matches: list[CatalogItem] = Field(default_factory=list)
+    menu_match_count: int = 0
+    ranking: NutrientRanking | None = None
     relaxation: RelaxationInfo
     inspector: InspectorTrace
 

@@ -6,7 +6,10 @@ import FavoriteButton from "./FavoriteButton.jsx";
 import SourcePhoto from "./SourcePhoto.jsx";
 import AddToPlan from "./AddToPlan.jsx";
 import { MenuRecords } from "./MapPopup.jsx";
+import { CatalogSearchResults } from "./CatalogBrands.jsx";
 import { formatCalories, formatGrams, knownMacros } from "../macros.js";
+
+const RANK_LABELS = { calories: "calories", protein_g: "protein", carbs_g: "carbs", fat_g: "fat" };
 
 const CHIPS = [
   { label: "Heavy snack", text: "heavy snack" },
@@ -75,6 +78,11 @@ export function MealResults({ response, onLocate, isFavorite, onToggleFavorite }
     {response.answer && <p className="result-note">{response.answer}</p>}
     {response.catalog_answers?.length > 0 && <details className="catalog-answer-details"><summary>View menu sources and details</summary><MenuRecords items={response.catalog_answers} /></details>}
     {response.relaxation.applied && <p className="result-note">{response.relaxation.notice}</p>}
+    {response.menu_matches?.length > 0 && <section className="chat-menu-matches" aria-label={response.ranking ? `Ranked by ${RANK_LABELS[response.ranking.field]}` : "Menu matches"}>
+      {response.ranking
+        ? <MenuRecords items={response.menu_matches} goals={response.inspector?.constraints} ranked label={`${response.ranking.direction === "desc" ? "Highest" : "Lowest"} ${RANK_LABELS[response.ranking.field]} first`} />
+        : <CatalogSearchResults items={response.menu_matches} filters={response.inspector?.constraints} summary={false} />}
+    </section>}
     {response.results.length > 0 && <RestaurantResults items={response.results} {...shared} />}
     {response.catalog_matches?.length > 0 && <section aria-label="Catalog matches pending review"><p className="result-note">Source menus · Pending review</p><RestaurantResults items={response.catalog_matches} preview {...shared} /></section>}
   </div>;
@@ -99,12 +107,12 @@ export default function ChatPanel({ messages, onSend, busy, onLocate, searchCont
     <section className="flex h-full min-h-0 flex-col" aria-label="Chat">
       <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-4" aria-live="polite">
         {messages.length === 0 && (
-          <div className="chat-empty"><h2>Search for a meal</h2><p>Try a dish or restaurant name. You can add a calorie, protein or budget limit.</p><p className="mt-3">For example: “chicken under 500 kcal”.</p></div>
+          <div className="chat-empty"><h2>Search for a meal</h2><p>Try a dish or restaurant name. You can add a calorie, protein, carbs, fat or budget limit, or ask for the highest or lowest.</p><p className="mt-3">For example: “highest protein item at KFC” or “low carb chicken under 500 kcal”.</p></div>
         )}
         {messages.map((m, index) => (
           <Message key={`${m.id}-${index}`} msg={m} onLocate={onLocate} searchContext={searchContext} isFavorite={isFavorite} onToggleFavorite={onToggleFavorite} />
         ))}
-        {busy && <p className="text-sm text-slate-mute">Checking nearby restaurants…</p>}
+        {busy && <p className="text-sm text-slate-mute">Searching menus…</p>}
         <div ref={endRef} />
       </div>
 

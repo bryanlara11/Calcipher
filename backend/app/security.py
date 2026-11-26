@@ -13,6 +13,8 @@ from dataclasses import dataclass, field
 from app.schemas import MAX_QUERY_LENGTH, SearchConstraints
 
 KCAL_PER_GRAM_PROTEIN = 4
+KCAL_PER_GRAM_CARBS = 4
+KCAL_PER_GRAM_FAT = 9
 
 _CONTROL_CHARS = re.compile(r"[\x00-\x08\x0b-\x1f\x7f-\x9f​-‏ -‮⁠-⁤﻿]")
 _WHITESPACE = re.compile(r"\s+")
@@ -71,8 +73,22 @@ class MacroPhysicsError(ValueError):
 
 
 def validate_macro_physics(constraints: SearchConstraints) -> None:
+    c = constraints
+    for label, low, high, unit in (("calorie", c.min_calories, c.max_calories, " kcal"),
+                                   ("protein", c.min_protein_g, c.max_protein_g, " g"),
+                                   ("carbs", c.min_carbs_g, c.max_carbs_g, " g"),
+                                   ("fat", c.min_fat_g, c.max_fat_g, " g")):
+        if low is not None and high is not None and low > high:
+            raise MacroPhysicsError(f"Impossible request: the {label} minimum ({low:g}{unit}) is above "
+                                    f"the maximum ({high:g}{unit}). Swap or adjust the limits.")
     max_cal = constraints.max_calories
     min_protein = constraints.min_protein_g
+    if max_cal is not None:
+        floor_kcal = ((c.min_protein_g or 0) * KCAL_PER_GRAM_PROTEIN + (c.min_carbs_g or 0) * KCAL_PER_GRAM_CARBS
+                      + (c.min_fat_g or 0) * KCAL_PER_GRAM_FAT)
+        if floor_kcal > max_cal and (c.min_carbs_g or c.min_fat_g):
+            raise MacroPhysicsError(f"Impossible request: the minimum protein, carbs and fat add up to "
+                                    f"{floor_kcal:g} kcal, more than the {max_cal} kcal limit.")
     if max_cal is None or min_protein is None:
         return
     protein_kcal = min_protein * KCAL_PER_GRAM_PROTEIN

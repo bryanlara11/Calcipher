@@ -627,3 +627,26 @@ it("submits a genuine rating action and does not create a badge from one vote", 
   expect(JSON.parse(request[1].body).voter_id).toMatch(/^[0-9a-f-]{36}$/i);
   expect(screen.queryByAltText("CalCipher community pick seal")).toBeNull();
 });
+
+describe("catalog-wide chat answers", () => {
+  const base = { results: [], catalog_matches: [], relaxation: { applied: false }, inspector: { generator_used: "template", constraints: {} } };
+  const kfc = { ...sample, item_id: "a", food_item: "Zinger", brand_name: "KFC", protein_g: 32 };
+  const pecho = { ...sample, item_id: "b", food_item: "Chicken Inasal Pecho", brand_name: "Mang Inasal", protein_g: 45 };
+  it("shows a ranking in the server's order with each item's restaurant", () => {
+    render(<MealResults response={{ ...base, answer: "Highest protein:", menu_matches: [pecho, kfc], menu_match_count: 2,
+      ranking: { field: "protein_g", direction: "desc" } }} onLocate={() => {}} />);
+    const list = screen.getByRole("list", { name: "Highest protein first" });
+    const rows = within(list).getAllByRole("listitem");
+    expect(rows.map(row => row.querySelector("h3").textContent)).toEqual(["1.Chicken Inasal PechoMang Inasal", "2.ZingerKFC"]);
+    expect(list.tagName).toBe("OL");
+  });
+  it("groups plain food matches by restaurant without repeating the answer's counts", async () => {
+    render(<MealResults response={{ ...base, answer: "2 menu items matching “chicken” from 2 restaurants.", menu_matches: [kfc, pecho],
+      menu_match_count: 2, ranking: null }} onLocate={() => {}} />);
+    expect(screen.getByText("KFC", { selector: "summary strong" })).toBeTruthy();
+    expect(screen.getByText("Mang Inasal", { selector: "summary strong" })).toBeTruthy();
+    expect(screen.queryByText(/across 2 restaurants/)).toBeNull();
+    await userEvent.click(screen.getByText("KFC", { selector: "summary strong" }));
+    expect(screen.getByText("Zinger")).toBeTruthy();
+  });
+});

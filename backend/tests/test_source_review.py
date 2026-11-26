@@ -308,16 +308,16 @@ async def test_chat_catalog_previews_obey_brand_nutrition_location_and_budget_wi
     selected = await service.chat(db_session, message="KFC under 800 kcal", lat=UPM_LAT, lng=UPM_LNG,
                                   filters=MealFilters(max_calories=500, min_protein_g=20))
     assert selected.inspector.constraints.max_calories == 500
-    assert len(selected.catalog_matches) == 1 and selected.catalog_matches[0].calories <= 500
+    assert len(selected.menu_matches) == 1 and selected.menu_matches[0].calories <= 500
     with pytest.raises(MacroPhysicsError):
         await service.chat(db_session, message="KFC", lat=UPM_LAT, lng=UPM_LNG,
                            filters=MealFilters(max_calories=100, min_protein_g=100))
     for query in ["KFC under PHP250", "KFC under 400 kcal"]:
         empty = await service.chat(db_session, message=query, lat=UPM_LAT, lng=UPM_LNG)
-        assert not empty.results and not empty.catalog_matches
+        assert not empty.results and not empty.catalog_matches and not empty.menu_matches
     await add_item(db_session, brand_name="KFC", brand_slug="kfc", food_item="Reviewed chicken",
                    calories=430, protein_g=30, verified=True)
-    approved = await service.chat(db_session, message="KFC under 500 kcal", lat=UPM_LAT, lng=UPM_LNG)
+    approved = await service.chat(db_session, message="KFC under 500 kcal within 1 km", lat=UPM_LAT, lng=UPM_LNG)
     assert len(approved.results) == 1 and approved.results[0].is_verified
     assert approved.catalog_matches == []
 
@@ -457,7 +457,7 @@ async def test_unknown_food_returns_no_matches_before_discovery(db_session):
     reply = await service.chat(db_session, message="banana", lat=UPM_LAT, lng=UPM_LNG)
     assert not reply.results and not reply.catalog_matches
     assert "banana" in reply.answer and "current catalog" in reply.answer
-    assert reply.inspector.retrieval_attempts == 0
+    assert reply.inspector.discovery == []  # answered from the menu catalog, no branch lookup
 
 
 @pytest.mark.db
