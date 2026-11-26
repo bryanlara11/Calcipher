@@ -1,3 +1,4 @@
+import { formatCalories } from "../macros.js";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { BranchPopup } from "./MapPopup.jsx";
@@ -157,7 +158,7 @@ export default function GoogleMap({ location, onMove, onViewport, radiusKm, pins
     {popup && (() => {
       const content = <>
         {popup.pin.has_calorie_data !== undefined ? <BranchPopup pin={popup.pin} goals={goals} isFavorite={isFavorite} onToggleFavorite={onToggleFavorite} /> : <strong>{popup.pin.poi_name}</strong>}
-        {popup.pin.has_calorie_data === undefined && popup.items.length > 0 && <details className="popup-results"><summary>Matching meals ({popup.items.length})</summary>{popup.items.map(({item}) => <p key={item.item_id}>{item.food_item} · {item.calories} kcal</p>)}</details>}
+        {popup.pin.has_calorie_data === undefined && popup.items.length > 0 && <details className="popup-results"><summary>Matching meals ({popup.items.length})</summary>{popup.items.map(({item}) => <p key={item.item_id}>{item.food_item} · {formatCalories(item)} kcal</p>)}</details>}
         {(popup.pin.attributions || []).map(a => <p key={a.provider}>{a.provider}</p>)}
       </>;
       return popup.sheet

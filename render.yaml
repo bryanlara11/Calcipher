@@ -1,0 +1,37 @@
+# Render Blueprint: one web service (API + built frontend) and a pgvector-capable Postgres.
+# Keys are never stored here. Google mode needs BOTH keys below, entered in the Render dashboard
+# (Environment tab); with either one blank the app uses OpenStreetMap. GEMINI_API_KEY is optional.
+services:
+  - type: web
+    name: calcipher
+    runtime: docker
+    plan: free
+    region: singapore
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /api/v1/health
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: calcipher-db
+          property: connectionString
+      - key: CORS_ORIGINS
+        value: "[]"
+      # Server-only Places API (New) key.
+      - key: GOOGLE_PLACES_API_KEY
+        sync: false
+      # Browser Maps JavaScript key, baked into the frontend at build time. Restrict it to
+      # https://calcipher.onrender.com/* in Google Cloud.
+      - key: VITE_GOOGLE_MAPS_API_KEY
+        sync: false
+      # Public Overpass mirrors can take ~30 s to stream a 2 km result to a cloud host.
+      - key: OVERPASS_TIMEOUT_S
+        value: "45"
+
+databases:
+  - name: calcipher-db
+    plan: free
+    region: singapore
+    databaseName: calcipher
+    user: calcipher
+    postgresMajorVersion: "16"

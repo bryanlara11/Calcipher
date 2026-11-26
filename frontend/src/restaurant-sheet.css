@@ -7,9 +7,9 @@
   max-height: min(72dvh, 620px);
   padding-bottom: env(safe-area-inset-bottom);
   background: rgb(var(--surface)); color: rgb(var(--ink));
-  border-top: 1px solid rgb(var(--line)); border-radius: 14px 14px 0 0;
+  border-top: 1px solid rgb(var(--line)); border-radius: 16px 16px 0 0;
   box-shadow: 0 -8px 30px #0003;
-  animation: sheet-in .22s ease-out;
+  animation: sheet-in 320ms var(--ease);
 }
 .restaurant-sheet:focus { outline: none; }
 .restaurant-sheet:focus-visible { outline: 2px solid var(--solid); outline-offset: -2px; }
@@ -17,7 +17,7 @@
 .sheet-grabber { width: 36px; height: 5px; margin-top: 2px; border-radius: 3px; background: rgb(var(--line)); }
 .restaurant-sheet .sheet-close { position: absolute; top: 4px; right: 8px; min-width: 44px; min-height: 44px; }
 /* Only vertical scrolling inside the sheet; long words and addresses wrap. */
-.restaurant-sheet-body { flex: 1; min-height: 0; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; padding: 0 18px 18px; overflow-wrap: anywhere; }
+.restaurant-sheet-body { flex: 1; min-height: 0; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; padding: 0 20px 20px; overflow-wrap: anywhere; }
 .restaurant-sheet .branch-popup { width: 100%; max-width: none; max-height: none; overflow: visible; padding-right: 0; }
 .restaurant-sheet .branch-popup .branch-heading { position: static; padding-right: 40px; }
 .restaurant-sheet .branch-popup .menu-records { max-height: none; overflow: visible; }

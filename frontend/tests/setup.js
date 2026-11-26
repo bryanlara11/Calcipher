@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, vi } from "vitest";
 import { cleanup } from "@testing-library/react";
+import { clearMenuCache } from "../src/menuCache.js";
 
 let listeners;
 export function changeSystemTheme(dark) {
@@ -16,4 +17,4 @@ beforeEach(() => {
   sessionStorage.setItem("calcipher.splashSeen", "1");
   document.documentElement.dataset.theme = "light";
 });
-afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
+afterEach(() => { cleanup(); clearMenuCache(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });

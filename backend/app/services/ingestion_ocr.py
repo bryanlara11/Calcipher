@@ -51,8 +51,13 @@ def build_context_string(
     carbs_g: float | Decimal | None = None,
     fat_g: float | Decimal | None = None,
     price_php: float | Decimal | None = None,
+    calorie_bounds: list[float] | None = None,
 ) -> str:
-    parts = [f"{food_item} from {brand_name} ({serving_size or UNKNOWN_SERVING}). {calories} kcal"]
+    energy = str(calories)
+    if calorie_bounds:
+        low, high = calorie_bounds
+        energy = f"{high:g}" if low == high else f"{low:g}–{high:g}"
+    parts = [f"{food_item} from {brand_name} ({serving_size or UNKNOWN_SERVING}). {energy} kcal"]
     for label, value in (("protein", protein_g), ("carbs", carbs_g), ("fat", fat_g)):
         formatted = _fmt(value)
         if formatted is not None:
@@ -126,6 +131,7 @@ class ParsedNutrition:
         return build_context_string(
             self.brand_name, self.food_item, self.serving_size, self.calories,
             self.protein_g, self.carbs_g, self.fat_g, self.price_php,
+            self.provenance.get("calorie_bounds"),
         )
 
 

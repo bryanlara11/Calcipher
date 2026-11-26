@@ -30,5 +30,47 @@
     "observed_on": "2026-11-25",
     "method": "public_browser_observation",
     "snapshot_sha256": "7d5f3ac8aef95f92126167d48b0dbf833310f69a0e0535bd91f024dddcd4967c"
+  },
+  {
+    "brand_name": "Andok's",
+    "account": "anongcaloriesnito",
+    "post_url": "https://www.instagram.com/p/Dd0E8OOEn2O/?img_index=1",
+    "observed_on": "2026-11-26",
+    "method": "manual-intake-2026-11-26"
+  },
+  {
+    "brand_name": "Angkan",
+    "account": "anongcaloriesnito",
+    "post_url": "https://www.instagram.com/p/DdUBFg0EgFk/?img_index=2",
+    "observed_on": "2026-11-26",
+    "method": "manual-intake-2026-11-26"
+  },
+  {
+    "brand_name": "Ate Rica's Bacsilog",
+    "account": "anongcaloriesnito",
+    "post_url": "https://www.instagram.com/p/DUgM2YdEh1s/?img_index=1",
+    "observed_on": "2026-11-26",
+    "method": "manual-intake-2026-11-26"
+  },
+  {
+    "brand_name": "Auntie Anne's",
+    "account": "anongcaloriesnito",
+    "post_url": "https://www.instagram.com/p/DXZckrMkrWD/?img_index=1",
+    "observed_on": "2026-11-26",
+    "method": "manual-intake-2026-11-26"
+  },
+  {
+    "brand_name": "Banh Mi Kitchen",
+    "account": "anongcaloriesnito",
+    "post_url": "https://www.instagram.com/p/DVSi3BnEuQA/?img_index=2",
+    "observed_on": "2026-11-26",
+    "method": "manual-intake-2026-11-26"
+  },
+  {
+    "brand_name": "BonChon",
+    "account": "anongcaloriesnito",
+    "post_url": "https://www.instagram.com/p/Da4IGMokniS/?img_index=2",
+    "observed_on": "2026-11-26",
+    "method": "manual-intake-2026-11-26"
   }
 ]

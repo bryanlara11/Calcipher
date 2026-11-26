@@ -3,10 +3,15 @@ import { Icon } from "./Brand.jsx";
 export default function HomePage({ headingRef }) {
   return <div className="home-page">
     <section className="home-hero">
-      <div><h1 ref={headingRef} tabIndex={-1}>Find your next meal.</h1>
-        <p className="page-lead">Search menus, check calories and plan what to eat.</p>
+      <div><h1 ref={headingRef} tabIndex={-1}>Calorie-counted meals near you</h1>
+        <p className="page-lead">Search Metro Manila restaurant menus, see where each calorie figure comes from and plan what to eat.</p>
         <div className="home-actions"><a className="button-primary" href="#/search">Find a meal<Icon name="arrow" size={18} /></a><a className="button-secondary" href="#/nearby">Explore nearby<Icon name="pin" size={18} /></a></div>
-      </div><figure className="home-menu-photo"><img src="/media/web-crisostomo-crazy-sisa.webp" alt="Crisostomo Crazy Sisa salad from the restaurant menu" width="687" height="543" decoding="async" /><figcaption><span>Crazy Sisa · Crisostomo</span><a href="https://www.florabelgroup.com.ph/menu/Crisostomo-MainMenu.pdf#page=14" target="_blank" rel="noreferrer">Menu photo ↗</a></figcaption></figure>
+      </div><figure className="home-menu-photo"><img src="/media/web-crisostomo-crazy-sisa.webp" alt="Crisostomo Crazy Sisa salad from the restaurant menu" width="687" height="543" decoding="async" /><figcaption>
+        <div className="home-photo-title"><span>Crazy Sisa</span><small>Crisostomo · pending review</small></div>
+        <p className="home-photo-kcal figure">190<span>kcal</span></p>
+        <dl className="home-photo-macros figure"><div><dt>Protein</dt><dd>26 g</dd></div><div><dt>Carbs</dt><dd>15 g</dd></div><div><dt>Fat</dt><dd>3 g</dd></div></dl>
+        <a className="source-tag" href="https://www.florabelgroup.com.ph/menu/Crisostomo-MainMenu.pdf#page=14" target="_blank" rel="noreferrer">Source: Crisostomo menu, p. 14 ↗</a>
+      </figcaption></figure>
     </section>
     <details className="home-guide"><summary>How it works</summary>
       <ol className="how-grid">

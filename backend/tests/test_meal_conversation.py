@@ -36,13 +36,13 @@ async def test_heavy_and_light_snacks_rank_real_snacks_and_keep_explicit_limits(
     await add_branch(db_session, osm_id=899881, poi_name="Synthetic Cafe", lat=UPM_LAT, lng=UPM_LNG, slug="synthetic cafe")
     service = make_service()
     heavy = await service.chat(db_session,message="heavy snack",lat=UPM_LAT,lng=UPM_LNG)
-    assert [x.calories for x in heavy.catalog_matches] == [430, 260, 1239]
+    assert [x.calories for x in heavy.menu_matches] == [430, 260, 1239]
     assert "430 kcal" in heavy.answer and "pending review" in heavy.answer
     assert not heavy.results
     light = await service.chat(db_session,message="light snack",lat=UPM_LAT,lng=UPM_LNG)
-    assert [x.calories for x in light.catalog_matches] == [260, 430, 1239]
+    assert [x.calories for x in light.menu_matches] == [260, 430, 1239]
     limited = await service.chat(db_session,message="heavy snack under 300 kcal",lat=UPM_LAT,lng=UPM_LNG)
-    assert [x.food_item for x in limited.catalog_matches] == ["Siopao"]
+    assert [x.food_item for x in limited.menu_matches] == ["Siopao"]
 
 
 @pytest.mark.db

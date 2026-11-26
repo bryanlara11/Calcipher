@@ -694,7 +694,7 @@ def read_reviewed(path: Path) -> ReviewedItems:
                 if not isinstance(provenance, dict):
                     raise ValueError("expected an object")
                 from app.services.source_review import validate_provenance
-                out.errors.extend(f"row {line}: {error}" for error in validate_provenance(provenance, verified_raw in _YES))
+                out.errors.extend(f"row {line}: {error}" for error in validate_provenance(provenance, verified_raw in _YES, calories))
             except (ValueError, TypeError) as exc:
                 out.errors.append(f"row {line}: invalid provenance_json: {exc}")
                 provenance = {}

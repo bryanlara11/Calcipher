@@ -12,6 +12,7 @@ from fastapi import Depends, FastAPI, HTTPException, Path, Query, Request, Respo
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -19,28 +20,33 @@ from app.config import Settings, get_settings
 from app.models import PH_LAT_MAX, PH_LAT_MIN, PH_LNG_MAX, PH_LNG_MIN
 from app.db.session import dispose_engine, get_engine, get_session, get_sessionmaker, init_db
 from app.schemas import (
+    DEFAULT_DISTANCE_KM,
     MAX_DISTANCE_KM,
     BrandItemsResponse,
+    CatalogSearchRequest,
+    CatalogSearchResponse,
     ChatRequest,
     ChatResponse,
+    MapItemsRequest,
     MapItemsResponse,
     MealRatingRequest,
 )
 from app.db.maintenance import count_stale_embeddings
-from app.security import MacroPhysicsError, SlidingWindowRateLimiter
+from app.security import MacroPhysicsError, SlidingWindowRateLimiter, validate_macro_physics
 from app.services.brand_matcher import BrandRegistry, load_brand_matcher, normalize_brand
 from app.services.embedder import get_embedder
 from app.services.generator import GroundedGenerator
-from app.services.hybrid_rag import HybridRagService, brand_items
+from app.services.hybrid_rag import HybridRagService, brand_items, search_catalog
 from app.services.llm import GeminiClient, LLMClient
+from app.services.discovery_fallback import OsmFirstDiscovery
 from app.services.google_places import GooglePlacesDiscovery, PlacesQuotaLimited, PlacesUnavailable
-from app.services.query_parser import QueryParser
+from app.services.query_parser import QueryParser, RegexConstraintParser
 from app.services.meal_ratings import attach_ratings, save_rating
 from app.services.overpass_client import BranchDiscoveryService, OverpassClient
 
 logger = logging.getLogger("calcipher")
 
-RATE_LIMITED_PREFIXES = ("/api/v1/chat", "/api/v1/map-items", "/api/v1/brands", "/api/v1/meal-ratings")
+RATE_LIMITED_PREFIXES = ("/api/v1/chat", "/api/v1/catalog-search", "/api/v1/map-items", "/api/v1/brands", "/api/v1/meal-ratings")
 
 
 def build_rag_service(settings: Settings, brands: BrandRegistry, provider: str = "google") -> HybridRagService:
@@ -53,6 +59,13 @@ def build_rag_service(settings: Settings, brands: BrandRegistry, provider: str =
             )
         except Exception:  # missing package or bad key format: degrade to regex/template
             logger.exception("Gemini client unavailable; continuing without LLM")
+    def google() -> GooglePlacesDiscovery:
+        return GooglePlacesDiscovery(
+            settings.google_places_api_key, location_brands.refresh_if_stale,
+            cache_ttl_s=settings.places_cache_ttl_s, state_path=settings.places_state_path,
+        )
+
+    discovery: BranchDiscoveryService | GooglePlacesDiscovery | OsmFirstDiscovery
     if provider == "osm":
         discovery = BranchDiscoveryService(
             OverpassClient(settings.overpass_urls, user_agent=settings.overpass_user_agent,
@@ -61,11 +74,10 @@ def build_rag_service(settings: Settings, brands: BrandRegistry, provider: str =
             max_radius_m=settings.overpass_max_radius_m, enabled=settings.overpass_enabled,
             failure_cooldown_s=settings.overpass_failure_cooldown_s,
         )
+        if settings.google_places_api_key and settings.google_places_mode == "fallback":
+            discovery = OsmFirstDiscovery(discovery, google())
     else:
-        discovery = GooglePlacesDiscovery(
-            settings.google_places_api_key, location_brands.refresh_if_stale,
-            cache_ttl_s=settings.places_cache_ttl_s, state_path=settings.places_state_path,
-        )
+        discovery = google()
     return HybridRagService(
         discovery=discovery,
         parser=QueryParser(llm),
@@ -86,8 +98,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         from app.db.maintenance import rematch_branches
         await rematch_branches(session, await load_brand_matcher(session, include_pending=True))
         app.state.osm_rag = build_rag_service(settings, brands, "osm")
-        app.state.rag = (build_rag_service(settings, brands) if settings.google_places_api_key
-                         else app.state.osm_rag)
+        google_primary = bool(settings.google_places_api_key) and settings.google_places_mode == "primary"
+        app.state.rag = build_rag_service(settings, brands) if google_primary else app.state.osm_rag
         stale = await count_stale_embeddings(session, app.state.rag.embedder.name)
     if stale:
         logger.warning(
@@ -134,9 +146,23 @@ def _error(status: int, detail: str, code: str, request: Request, headers: dict[
     )
 
 
+class StripQueryFromAccessLog(logging.Filter):
+    """Access logs keep method, path and status but drop query strings, which can carry coordinates."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if isinstance(record.args, tuple) and len(record.args) >= 3 and isinstance(record.args[2], str):
+            args = list(record.args)
+            args[2] = args[2].split("?", 1)[0]
+            record.args = tuple(args)
+        return True
+
+
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or get_settings()
     logging.basicConfig(level=settings.log_level, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    access_log = logging.getLogger("uvicorn.access")
+    if not any(isinstance(f, StripQueryFromAccessLog) for f in access_log.filters):
+        access_log.addFilter(StripQueryFromAccessLog())
 
     app = FastAPI(title="CalCipher API", version="1.0.0", lifespan=lifespan)
     app.state.settings = settings
@@ -192,10 +218,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.get("/api/v1/map-config")
     async def map_config(browser_key_configured: bool = False) -> dict[str, object]:
         # Only capability flags leave the server. Never return the server Places key.
-        google_ready = bool(settings.google_places_api_key) and browser_key_configured
+        google_ready = (bool(settings.google_places_api_key) and browser_key_configured
+                        and settings.google_places_mode == "primary")
         return {
             "provider": "google" if google_ready else "osm",
             "google_places_configured": bool(settings.google_places_api_key),
+            "google_fallback": bool(settings.google_places_api_key) and settings.google_places_mode == "fallback",
             "osm_discovery_enabled": settings.overpass_enabled,
         }
 
@@ -241,6 +269,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         """))).mappings().all()
         return {"brands": [dict(row) for row in rows]}
 
+    @app.post("/api/v1/catalog-search", response_model=CatalogSearchResponse)
+    async def catalog_search(body: CatalogSearchRequest, session: SessionDep, rag: RagDep):
+        constraints, _, _ = RegexConstraintParser().parse(body.message, rag.brands.matcher, DEFAULT_DISTANCE_KM)
+        if body.filters:
+            constraints = constraints.model_copy(update=body.filters.model_dump(exclude_none=True))
+        validate_macro_physics(constraints)
+        items = await search_catalog(session, constraints)
+        return {"items": await attach_ratings(session, items), "filters": constraints.model_dump(include={
+            "max_calories", "min_protein_g", "max_price_php"})}
+
     @app.post("/api/v1/chat", response_model=ChatResponse)
     async def chat(body: ChatRequest, request: Request, session: SessionDep, rag: RagDep) -> ChatResponse:
         result = await rag.chat(
@@ -264,16 +302,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(404, "Meal is not in the active catalog")
         return summary
 
-    @app.get("/api/v1/map-items", response_model=MapItemsResponse)
-    async def map_items(
-        session: SessionDep,
-        rag: RagDep,
-        lat: Annotated[float, Query(ge=PH_LAT_MIN, le=PH_LAT_MAX)],
-        lng: Annotated[float, Query(ge=PH_LNG_MIN, le=PH_LNG_MAX)],
-        radius_km: Annotated[float, Query(gt=0, le=MAX_DISTANCE_KM)] = 2.0,
-        include_unmatched: bool = True,
-        include_pending: bool = False,
-        viewport: Annotated[list[float] | None, Query(min_length=4, max_length=4)] = None,
+    async def find_map_items(
+        session: AsyncSession, rag: HybridRagService, *, lat: float, lng: float, radius_km: float,
+        include_unmatched: bool, include_pending: bool, viewport: list[float] | None, persist: bool = True,
     ) -> MapItemsResponse:
         if viewport is not None:
             south, north, west, east = viewport
@@ -281,7 +312,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 raise HTTPException(422, "Invalid map viewport")
         pins, discovery = await rag.map_items(
             session, lat=lat, lng=lng, radius_km=radius_km, include_unmatched=include_unmatched, viewport=viewport,
-            include_pending=include_pending,
+            include_pending=include_pending, persist=persist,
         )
         matched = sum(1 for p in pins if p.has_calorie_data)
         return MapItemsResponse(
@@ -293,6 +324,29 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             discovery=discovery,
         )
 
+    @app.get("/api/v1/map-items", response_model=MapItemsResponse)
+    async def map_items(
+        session: SessionDep,
+        rag: RagDep,
+        lat: Annotated[float, Query(ge=PH_LAT_MIN, le=PH_LAT_MAX)],
+        lng: Annotated[float, Query(ge=PH_LNG_MIN, le=PH_LNG_MAX)],
+        radius_km: Annotated[float, Query(gt=0, le=MAX_DISTANCE_KM)] = 2.0,
+        include_unmatched: bool = True,
+        include_pending: bool = False,
+        viewport: Annotated[list[float] | None, Query(min_length=4, max_length=4)] = None,
+    ) -> MapItemsResponse:
+        return await find_map_items(session, rag, lat=lat, lng=lng, radius_km=radius_km,
+                                    include_unmatched=include_unmatched, include_pending=include_pending,
+                                    viewport=viewport)
+
+    # The same lookup with coordinates in the body, so they stay out of URLs and proxy/access logs.
+    # device_location=true marks a pin taken from the browser's location; that lookup writes nothing.
+    @app.post("/api/v1/map-items", response_model=MapItemsResponse)
+    async def map_items_from_body(body: MapItemsRequest, session: SessionDep, rag: RagDep) -> MapItemsResponse:
+        return await find_map_items(session, rag, lat=body.lat, lng=body.lng, radius_km=body.radius_km,
+                                    include_unmatched=body.include_unmatched, include_pending=body.include_pending,
+                                    viewport=body.viewport, persist=not body.device_location)
+
     @app.get("/api/v1/brands/{brand_slug}/items", response_model=BrandItemsResponse)
     async def items_for_brand(
         session: SessionDep, brand_slug: Annotated[str, Path(min_length=1, max_length=255)],
@@ -300,6 +354,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     ) -> BrandItemsResponse:
         slug = normalize_brand(brand_slug)
         return BrandItemsResponse(brand_slug=slug, items=await attach_ratings(session, await brand_items(session, slug, include_pending=include_pending)))
+
+    # Mounted last so every /api route above wins. The frontend uses hash routing, so no SPA fallback is needed.
+    if settings.static_dir is not None and (settings.static_dir / "index.html").is_file():
+        app.mount("/", StaticFiles(directory=settings.static_dir, html=True), name="frontend")
+
+        # Phones must pick up a new release: revalidate the page every time, while the
+        # content-hashed bundles under /assets/ can be cached for good.
+        @app.middleware("http")
+        async def frontend_cache_headers(request: Request, call_next: Callable[[Request], Awaitable[Response]]) -> Response:
+            response = await call_next(request)
+            path = request.url.path
+            if not path.startswith("/api/"):
+                immutable = path.startswith("/assets/") and response.status_code == 200
+                response.headers.setdefault("Cache-Control", "public, max-age=31536000, immutable" if immutable else "no-cache")
+            return response
 
     return app
 

@@ -43,9 +43,10 @@ export function useFavorites() {
   const isFavorite = useCallback(pin => favorites.some(item => branchKey(item) === branchKey(pin)), [favorites]);
   const toggleFavorite = useCallback(pin => {
     const value = savedPlace(pin);
-    if (!value) return;
+    if (!value) return false;
     setFavorites(current => current.some(item => branchKey(item) === branchKey(value))
       ? current.filter(item => branchKey(item) !== branchKey(value)) : [...current, value]);
+    return true;
   }, []);
   return { favorites, isFavorite, toggleFavorite, storageUnavailable };
 }

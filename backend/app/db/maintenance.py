@@ -39,7 +39,7 @@ async def reembed_catalog(
     stmt = select(
         NutritionCatalog.id, NutritionCatalog.brand_name, NutritionCatalog.food_item,
         NutritionCatalog.serving_size, NutritionCatalog.calories, NutritionCatalog.protein_g,
-        NutritionCatalog.carbs_g, NutritionCatalog.fat_g, NutritionCatalog.price_php,
+        NutritionCatalog.carbs_g, NutritionCatalog.fat_g, NutritionCatalog.price_php, NutritionCatalog.provenance,
     ).order_by(NutritionCatalog.id)
     if only_stale:
         stmt = stmt.where(_stale_filter(embedder.name))
@@ -50,7 +50,7 @@ async def reembed_catalog(
         batch = rows[start : start + batch_size]
         contexts = [
             build_context_string(r.brand_name, r.food_item, r.serving_size, r.calories,
-                                 r.protein_g, r.carbs_g, r.fat_g, r.price_php)
+                                 r.protein_g, r.carbs_g, r.fat_g, r.price_php, r.provenance.get("calorie_bounds"))
             for r in batch
         ]
         vectors = await asyncio.to_thread(embedder.embed, contexts)

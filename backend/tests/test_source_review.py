@@ -5,7 +5,7 @@ from pathlib import Path
 
 import httpx
 import pytest
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 
 from app.collect_sources import CollectionStopped, collect_entries, parse_entry
 from app.ingest import load_reviewed, read_reviewed
@@ -13,10 +13,39 @@ from app.models import NutritionCatalog
 from app.schemas import SearchConstraints
 from app.services.brand_matcher import load_brand_matcher
 from app.services.embedder import HashingEmbedder
-from app.services.hybrid_rag import brand_items, nearby_branches, retrieve
+from app.services.hybrid_rag import brand_items, nearby_branches, retrieve, search_catalog
 from app.services.source_review import prepare_review
 from tests.conftest import UPM_LAT, UPM_LNG, add_branch, add_item
 from tests.test_ingest_pipeline import _use_test_db
+
+
+@pytest.mark.db
+async def test_catalog_search_includes_compounds_notes_and_equivalent_portions(db_session):
+    for name, brand, serving in [
+        ("2-pc. Chickenjoy", "Jollibee", "1 serving"), ("McChicken", "McDonald's", "1 serving"),
+        ("Dumplings", "Fixture", "2 pieces"), ("12pc Chicken", "Fixture", "1 serving"),
+        ("Pork Bowl", "Fixture", "1 serving"), ("Roll", "Fixture", "1 serving"),
+        ("Katsu Curry", "Fixture", "1 serving"), ("Apple Pie", "Fixture", "1 piece"),
+        ("Roast Quarter", "Fixture", "1/4 chicken, no skin, no rice"),
+    ]:
+        await add_item(db_session, brand_name=brand, brand_slug=brand.lower(), food_item=name,
+                       serving_size=serving, calories=400, verified=False)
+    for name, note in [("Pork Bowl", "With Rice and Drink"), ("Roll", "Historical price only; rice excluded"),
+                       ("Katsu Curry", "Rice weight/inclusion is not established by the calorie source.")]:
+        await db_session.execute(update(NutritionCatalog).where(NutritionCatalog.food_item == name)
+                                 .values(provenance={"notes": note}))
+
+    async def names(query, **filters):
+        items = await search_catalog(db_session, SearchConstraints(semantic_query=query, **filters))
+        return {item.food_item for item in items}
+
+    assert await names("chicken") == {"2-pc. Chickenjoy", "McChicken", "12pc Chicken", "Roast Quarter"}
+    assert await names("rice") == {"Pork Bowl"}
+    for query in ["2pc", "2-pc", "2 pieces", "2 pcs."]:
+        assert await names(query) == {"2-pc. Chickenjoy", "Dumplings"}
+    assert await names("chicken 2pc") == {"2-pc. Chickenjoy"}
+    assert await names("pie") == {"Apple Pie"}
+    assert await names("chicken", max_calories=399) == set()
 
 
 def candidate(**changes):
@@ -50,6 +79,24 @@ def test_preparation_never_approves_automatically_and_preserves_unknowns(tmp_pat
     assert item.serving_size is None and item.price_php is None and item.carbs_g is None
     assert item.provenance["source_classification"] == "community_reported"
     assert item.source_images == ["SYNTHETIC_2.png"]
+
+
+@pytest.mark.db
+async def test_source_calorie_bounds_survive_menus_and_filters(tmp_path, db_session, monkeypatch, pg_url):
+    _use_test_db(monkeypatch, pg_url)
+    source, review, _ = files(tmp_path, [
+        candidate(food_item="Combo", calories=576, calorie_bounds=[446, 576]),
+        candidate(record_id="TEST-002", food_item="Coffee", calories=1, calorie_bounds=[0.11, 0.11], protein_g=None),
+    ])
+    prepare_review(source, review)
+    assert (await load_reviewed(review))["written"] == 2
+    menu = await brand_items(db_session, "synthetic chain", include_pending=True)
+    assert [item.calorie_label for item in menu] == ["0.11", "446–576"]
+    await add_branch(db_session, osm_id=502, poi_name="Synthetic Chain", lat=UPM_LAT, lng=UPM_LNG, slug="synthetic chain")
+    for cap, expected in [(0, set()), (500, {"0.11"}), (576, {"0.11", "446–576"})]:
+        matches = await retrieve(db_session, lat=UPM_LAT, lng=UPM_LNG, constraints=SearchConstraints(max_calories=cap),
+                                 query_vec=HashingEmbedder().embed_one("menu"), pending_only=True)
+        assert {item.calorie_label for item in matches.items} == expected
 
 
 def test_receipt_approves_only_selected_ids(tmp_path):
@@ -261,16 +308,16 @@ async def test_chat_catalog_previews_obey_brand_nutrition_location_and_budget_wi
     selected = await service.chat(db_session, message="KFC under 800 kcal", lat=UPM_LAT, lng=UPM_LNG,
                                   filters=MealFilters(max_calories=500, min_protein_g=20))
     assert selected.inspector.constraints.max_calories == 500
-    assert len(selected.catalog_matches) == 1 and selected.catalog_matches[0].calories <= 500
+    assert len(selected.menu_matches) == 1 and selected.menu_matches[0].calories <= 500
     with pytest.raises(MacroPhysicsError):
         await service.chat(db_session, message="KFC", lat=UPM_LAT, lng=UPM_LNG,
                            filters=MealFilters(max_calories=100, min_protein_g=100))
     for query in ["KFC under PHP250", "KFC under 400 kcal"]:
         empty = await service.chat(db_session, message=query, lat=UPM_LAT, lng=UPM_LNG)
-        assert not empty.results and not empty.catalog_matches
+        assert not empty.results and not empty.catalog_matches and not empty.menu_matches
     await add_item(db_session, brand_name="KFC", brand_slug="kfc", food_item="Reviewed chicken",
                    calories=430, protein_g=30, verified=True)
-    approved = await service.chat(db_session, message="KFC under 500 kcal", lat=UPM_LAT, lng=UPM_LNG)
+    approved = await service.chat(db_session, message="KFC under 500 kcal within 1 km", lat=UPM_LAT, lng=UPM_LNG)
     assert len(approved.results) == 1 and approved.results[0].is_verified
     assert approved.catalog_matches == []
 
@@ -410,7 +457,7 @@ async def test_unknown_food_returns_no_matches_before_discovery(db_session):
     reply = await service.chat(db_session, message="banana", lat=UPM_LAT, lng=UPM_LNG)
     assert not reply.results and not reply.catalog_matches
     assert "banana" in reply.answer and "current catalog" in reply.answer
-    assert reply.inspector.retrieval_attempts == 0
+    assert reply.inspector.discovery == []  # answered from the menu catalog, no branch lookup
 
 
 @pytest.mark.db

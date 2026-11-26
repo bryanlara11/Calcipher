@@ -6,6 +6,7 @@ import csv
 import hashlib
 import io
 import json
+import math
 import re
 from datetime import date, datetime
 from pathlib import Path
@@ -21,10 +22,16 @@ def _http(value: object) -> bool:
     return parsed.scheme in {"http", "https"} and bool(parsed.netloc) and not parsed.username
 
 
-def validate_provenance(metadata: dict, verified: bool) -> list[str]:
+def validate_provenance(metadata: dict, verified: bool, calories=None) -> list[str]:
     errors = []
     if not metadata:
         return errors  # existing manually reviewed CSVs remain readable
+    bounds = metadata.get("calorie_bounds")
+    if bounds is not None:
+        if (not isinstance(bounds, list) or len(bounds) != 2
+                or not all(type(n) in (int, float) and 0 <= n <= 10000 for n in bounds)
+                or bounds[0] > bounds[1] or math.ceil(bounds[1]) != calories):
+            errors.append("calorie_bounds must be ordered source values matching the whole-kcal search ceiling")
     if metadata.get("source_classification") not in CLASSIFICATIONS:
         errors.append("source_classification must be official, community_reported or estimated")
     try:
@@ -89,7 +96,9 @@ def prepare_review(candidates_path: Path, output: Path, receipt_path: Path | Non
                 "reviewed_by": receipt.get("reviewed_by"), "reviewed_at": receipt.get("reviewed_at"),
                 "reference": receipt.get("reference"), "dataset_sha256": digest,
             }
-        errors = validate_provenance(metadata, record_id in approved)
+        if "calorie_bounds" in candidate:
+            metadata["calorie_bounds"] = candidate["calorie_bounds"]
+        errors = validate_provenance(metadata, record_id in approved, candidate.get("calories"))
         if errors:
             raise ValueError(f"{record_id}: " + "; ".join(errors))
         if not _http(candidate.get("source_post_url")):

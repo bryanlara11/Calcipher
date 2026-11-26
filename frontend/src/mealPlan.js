@@ -16,7 +16,8 @@ function validDay(day) {
 }
 function validItem(item) {
   return item && typeof item.item_id === "string" && typeof item.food_item === "string"
-    && typeof item.brand_name === "string" && Number.isFinite(item.calories) && item.calories >= 0 && item.calories <= 10000;
+    && typeof item.brand_name === "string" && Number.isFinite(item.calories) && item.calories >= 0 && item.calories <= 10000
+    && (item.calories_min == null || Number.isFinite(item.calories_min) && item.calories_min >= 0 && item.calories_min <= item.calories);
 }
 function parse(value) {
   try {
@@ -31,7 +32,12 @@ export function nutritionTotals(entries, field) {
       : { ...total, known: total.known + value };
   }, { known: 0, missing: 0 });
 }
-export function useMealPlan() {
+export function calorieTotals(entries) {
+  const upper = entries.reduce((sum, { item }) => sum + item.calories, 0);
+  const lower = entries.reduce((sum, { item }) => sum + (item.calories_min ?? item.calories), 0);
+  return { calories: Number(upper.toFixed(6)), calories_min: Number(lower.toFixed(6)) };
+}
+export function useMealPlan(notify) {
   const [entries, setEntries] = useState(() => { try { return parse(localStorage.getItem(PLAN_KEY)); } catch { return []; } });
   const [targets, setTargets] = useState(() => { try { const saved = JSON.parse(localStorage.getItem(TARGETS_KEY) || "{}"); return Object.fromEntries(Object.entries(saved).filter(([day,value]) => validDay(day) && Number.isInteger(value) && value > 0 && value <= 10000)); } catch { return {}; } });
   const [storageUnavailable, setStorageUnavailable] = useState(false);
@@ -41,16 +47,28 @@ export function useMealPlan() {
   }, [entries, targets]);
   const add = (item, day, slot) => {
     if (!validDay(day) || !MEAL_SLOTS[slot] || !validItem(item)) return false;
-    const safe = Object.fromEntries(["item_id", "food_item", "brand_name", "calories", "protein_g", "carbs_g", "fat_g", "serving_size", "is_verified", "source_post_url", "nutrition_source_url", "source_images"].map(key => [key, item[key]]));
-    setEntries(current => current.some(row => row.day === day && row.slot === slot && row.item.item_id === item.item_id) ? current
+    const matches = row => row.day === day && row.slot === slot && row.item.item_id === item.item_id;
+    if (entries.some(matches)) {
+      notify?.(`${item.food_item} is already in your meal plan for ${slot}.`);
+      return true;
+    }
+    const safe = Object.fromEntries(["item_id", "food_item", "brand_name", "calories", "calories_min", "protein_g", "carbs_g", "fat_g", "serving_size", "is_verified", "source_post_url", "nutrition_source_url", "source_images"].map(key => [key, item[key]]));
+    setEntries(current => current.some(matches) ? current
       : [...current, { id: globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}`, day, slot, item: safe }]);
+    notify?.(`Added ${item.food_item} to your meal plan for ${slot}.`);
     return true;
+  };
+  const remove = id => {
+    const entry = entries.find(row => row.id === id);
+    if (!entry) return;
+    setEntries(current => current.filter(row => row.id !== id));
+    notify?.(`Removed ${entry.item.food_item} from your meal plan.`);
   };
   const setTarget = (day, value) => {
     if (!validDay(day) || value !== "" && (!Number.isInteger(Number(value)) || Number(value) < 1 || Number(value) > 10000)) return;
     setTargets(current => { const next = { ...current }; if (value === "") delete next[day]; else next[day] = Number(value); return next; });
   };
-  return { entries, targets, setTarget, add, remove: id => setEntries(current => current.filter(row => row.id !== id)), storageUnavailable };
+  return { entries, targets, setTarget, add, remove, storageUnavailable };
 }
 
 export function weekDays(day) {

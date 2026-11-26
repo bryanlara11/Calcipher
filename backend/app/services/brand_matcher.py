@@ -29,6 +29,8 @@ _BRANCH_SEPARATOR = re.compile(r"\s+[-–—|/@]\s*|\s*[|(\[]|\s*[–—]\s*")
 
 # alias (normalized) -> canonical slug. Only aliases whose target exists in the catalog are used.
 BRAND_ALIASES: dict[str, str] = {
+    "bon chon": "bonchon",
+    "armynavy": "army navy",
     "andoks litson manok": "andoks",
     "andoks litson": "andoks",
     "kenny rogers": "kenny rogers roasters",
@@ -42,6 +44,7 @@ BRAND_ALIASES: dict[str, str] = {
     "24chicken": "24 chicken",
     "chow king": "chowking",
     "jolibee": "jollibee",
+    "kentucky fried chicken": "kfc",
     "subway sandwiches": "subway",
     "uncle john": "uncle johns",
     "ministop uncle johns": "uncle johns",
@@ -162,6 +165,14 @@ class BrandMatcher:
             for i in range(len(tokens) - n + 1):
                 if tuple(tokens[i : i + n]) == cand_tokens:
                     return slug
+        # Spacing differences: "mc donalds" or "jolli bee" still name McDonald's or Jollibee.
+        # Only names of five letters or more, so short words can't join into a brand by accident.
+        compact = {"".join(cand): slug for cand, slug in self._candidates if len("".join(cand)) >= 5}
+        for size in (2, 3):
+            for i in range(len(tokens) - size + 1):
+                hit = compact.get("".join(tokens[i : i + size]))
+                if hit:
+                    return hit
         return None
 
     def resolve_slug(self, value: str | None) -> str | None:

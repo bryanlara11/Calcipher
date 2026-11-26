@@ -19,15 +19,36 @@ Latitude = Annotated[float, Field(ge=PH_LAT_MIN, le=PH_LAT_MAX, description="WGS
 Longitude = Annotated[float, Field(ge=PH_LNG_MIN, le=PH_LNG_MAX, description="WGS84 longitude in the PH")]
 
 
+# The nutrients stored in nutrition_catalog. Sorting and ranking accept only these names; the
+# catalog has no fiber, sugar or sodium columns.
+Nutrient = Literal["calories", "protein_g", "carbs_g", "fat_g"]
+SortDirection = Literal["asc", "desc"]
+Grams = Annotated[float, Field(ge=0, le=500, allow_inf_nan=False)]
+
+
 class SearchConstraints(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     max_calories: int | None = Field(None, ge=0, le=10_000)
+    min_calories: int | None = Field(None, ge=0, le=10_000)
     max_price_php: float | None = Field(None, ge=0, le=99999999.99, allow_inf_nan=False)
     min_protein_g: float | None = Field(None, ge=0, le=500)
+    max_protein_g: Grams | None = None
+    min_carbs_g: Grams | None = None
+    max_carbs_g: Grams | None = None
+    min_fat_g: Grams | None = None
+    max_fat_g: Grams | None = None
+    # Deterministic ranking ("highest protein", "low carb"); items missing this nutrient are excluded.
+    sort_by: Nutrient | None = None
+    sort_direction: SortDirection | None = None
     max_distance_km: float = Field(DEFAULT_DISTANCE_KM, gt=0, le=MAX_DISTANCE_KM)
     target_brand: str | None = Field(None, max_length=255)
     semantic_query: str = Field("", max_length=MAX_QUERY_LENGTH)
+
+
+class NutrientRanking(BaseModel):
+    field: Nutrient
+    direction: SortDirection
 
 
 # ---------- requests ----------
@@ -57,6 +78,15 @@ class ChatRequest(BaseModel):
 
 
 class SourceEvidence(BaseModel):
+    calories: int | float = Field(union_mode="left_to_right")
+    calories_min: int | float | None = None
+
+    @property
+    def calorie_label(self) -> str:
+        if self.calories_min is None:
+            return f"{self.calories:g}"
+        return f"{self.calories_min:g}–{self.calories:g}"
+
     rating_updated_at: datetime | None = None
     rating_average: float | None = None
     rating_count: int = 0
@@ -73,7 +103,6 @@ class RetrievedItem(SourceEvidence):
     brand_name: str
     brand_slug: str
     food_item: str
-    calories: int
     protein_g: float | None
     carbs_g: float | None
     fat_g: float | None
@@ -138,6 +167,10 @@ class ChatResponse(BaseModel):
     results: list[RetrievedItem]
     catalog_matches: list[RetrievedItem] = Field(default_factory=list)
     catalog_answers: list[CatalogItem] = Field(default_factory=list)
+    # Catalog-wide matches (the same retrieval as Search). Ranked in order when `ranking` is set.
+    menu_matches: list[CatalogItem] = Field(default_factory=list)
+    menu_match_count: int = 0
+    ranking: NutrientRanking | None = None
     relaxation: RelaxationInfo
     inspector: InspectorTrace
 
@@ -160,8 +193,20 @@ class BranchPin(BaseModel):
     catalog_item_count: int = 0
     pending_item_count: int = 0
     item_count: int
-    min_calories: int | None
+    min_calories: int | float | None
     max_protein_g: float | None
+
+
+class MapItemsRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    lat: Latitude
+    lng: Longitude
+    radius_km: float = Field(2.0, gt=0, le=MAX_DISTANCE_KM)
+    include_unmatched: bool = True
+    include_pending: bool = False
+    viewport: list[float] | None = Field(None, min_length=4, max_length=4)
+    device_location: bool = False
 
 
 class MapItemsResponse(BaseModel):
@@ -178,7 +223,6 @@ class CatalogItem(SourceEvidence):
     item_id: str
     brand_name: str
     food_item: str
-    calories: int
     protein_g: float | None
     carbs_g: float | None
     fat_g: float | None
@@ -192,6 +236,17 @@ class CatalogItem(SourceEvidence):
 class BrandItemsResponse(BaseModel):
     brand_slug: str
     items: list[CatalogItem]
+
+
+class CatalogSearchRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    message: str = Field(min_length=1, max_length=MAX_QUERY_LENGTH)
+    filters: MealFilters | None = None
+
+
+class CatalogSearchResponse(BaseModel):
+    items: list[CatalogItem]
+    filters: MealFilters
 
 
 ChatResponse.model_rebuild()

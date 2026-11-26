@@ -18,6 +18,7 @@ from pydantic import BaseModel, ValidationError
 from app.schemas import DEFAULT_DISTANCE_KM, MAX_DISTANCE_KM, SearchConstraints
 from app.security import unescape_for_parsing, wrap_user_query
 from app.services.brand_matcher import BrandMatcher
+from app.services.food_matching import search_order
 from app.services.llm import LLMClient, LLMError
 
 logger = logging.getLogger(__name__)
@@ -56,6 +57,75 @@ _PROTEIN_PATTERNS = [
     re.compile(rf"{_NUM}\s*{_GRAMS}\s*\+?\s*(?:or\s+more\s+)?(?:of\s+)?protein", re.I),
     re.compile(rf"protein\s*(?:of\s+)?(?:{_MORE}\s*)?[:=]?\s*{_NUM}\s*{_GRAMS}\s*\+?", re.I),
 ]
+# "no more than 800 calories" / "not over 30 g fat" are ceilings, so floors skip a preceding no/not.
+_NOT_NEGATED = r"(?<!\bno\s)(?<!\bnot\s)"
+_MIN_CALORIE_PATTERNS = [
+    re.compile(rf"{_NOT_NEGATED}{_MORE}\s*{_NUM}\s*{_CAL_UNIT}", re.I),
+    re.compile(rf"{_NUM}\s*{_CAL_UNIT}\s*(?:or\s+more|or\s+above|and\s+(?:above|up|over)|\+)", re.I),
+]
+# Gram limits for any stored macronutrient: "under 30 g carbs", "fat below 10g", "at least 40g carbs".
+_MACRO = r"(protein|carbs?|carbohydrates?|fats?)"
+_MACRO_LIMIT_PATTERNS = [
+    ("max", re.compile(rf"{_LESS}\s*{_NUM}\s*{_GRAMS}\s*(?:of\s+)?{_MACRO}\b", re.I)),
+    ("max", re.compile(rf"\b{_MACRO}\s*(?:under|below|less\s+than|lower\s+than|at\s+most|max(?:imum)?(?:\s+of)?|up\s+to|<=?|≤)\s*{_NUM}\s*{_GRAMS}", re.I)),
+    ("min", re.compile(rf"{_NOT_NEGATED}{_MORE}\s*{_NUM}\s*{_GRAMS}\s*(?:of\s+)?{_MACRO}\b", re.I)),
+    ("min", re.compile(rf"\b{_MACRO}\s*(?:over|above|more\s+than|greater\s+than|at\s+least|min(?:imum)?(?:\s+of)?|>=?|≥)\s*{_NUM}\s*{_GRAMS}", re.I)),
+]
+# Ranking words. Only nutrients stored in the catalog can be ranked.
+_RANKED = r"(protein|carbs?|carbohydrates?|fats?|calories?|cals?|kcals?)"
+_SORT_PATTERNS = [
+    ("desc", re.compile(rf"\b(?:highest|most|max(?:imum)?|greatest|biggest|largest|top|high(?:er)?|lots\s+of|packed\s+with|rich\s+in|richest\s+in)[\s-]+(?:in\s+)?{_RANKED}\b", re.I)),
+    ("desc", re.compile(rf"\b{_RANKED}[\s-]+(?:rich|packed|heavy|dense)\b", re.I)),
+    ("asc", re.compile(rf"\b(?:lowest|least|fewest|min(?:imum)?|smallest|low(?:er)?|less|fewer|light\s+on)[\s-]+(?:in\s+)?{_RANKED}\b", re.I)),
+]
+# Nutrients people ask about that nutrition_catalog does not store.
+UNSTORED_NUTRIENTS = {"fiber": "fiber", "fibre": "fiber", "sugar": "sugar", "sugars": "sugar", "sodium": "sodium",
+                      "salt": "sodium", "cholesterol": "cholesterol", "saturated": "saturated fat",
+                      "potassium": "potassium", "calcium": "calcium", "iron": "iron", "caffeine": "caffeine"}
+_UNSTORED = "|".join(sorted(UNSTORED_NUTRIENTS, key=len, reverse=True))
+_UNSTORED_PATTERNS = [
+    re.compile(rf"\b(?:highest|most|max(?:imum)?|greatest|top|high(?:er)?|lots\s+of|rich\s+in|lowest|least|fewest|"
+               rf"min(?:imum)?|low(?:er)?|less|fewer|no|zero|reduced)[\s-]+(?:in\s+)?({_UNSTORED})\b", re.I),
+    re.compile(rf"\b({_UNSTORED})[\s-]+(?:free|rich|content|count|levels?|grams?)\b", re.I),
+    re.compile(rf"\b(?:how\s+much|amount\s+of|grams?\s+of)\s+({_UNSTORED})\b", re.I),
+    re.compile(rf"{_LESS}\s*{_NUM}\s*(?:g|grams?|mg|milligrams?)\s*(?:of\s+)?({_UNSTORED})\b", re.I),
+]
+_LOCATION = re.compile(
+    r"\b(walking\s+distance|walkable|near\s*by|near\s+(?:me|here|my\s+pin|the\s+pin)|close\s+by|around\s+here|"
+    r"closest|nearest)\b", re.I)
+
+
+def _nutrient(word: str) -> str:
+    word = word.lower()
+    if word.startswith("protein"):
+        return "protein_g"
+    if word.startswith("carb"):
+        return "carbs_g"
+    if word.startswith("fat"):
+        return "fat_g"
+    return "calories"
+
+
+def unstored_nutrients(text: str) -> list[str]:
+    """Nutrients the user asks to rank or limit that the catalog has no column for."""
+    found = [UNSTORED_NUTRIENTS[m.group(1).lower()] for p in _UNSTORED_PATTERNS for m in p.finditer(text)]
+    return list(dict.fromkeys(found))
+
+
+_PLACE_AT_END = re.compile(r"\b(?:at|in|from)\s+([A-Za-z0-9][\w'’&.\- ]{0,40}?)\s*[?.!]*\s*$", re.I)
+
+
+def unknown_place(text: str) -> str | None:
+    """The trailing "at <name>" / "in <name>" of a request, used to say a restaurant isn't listed."""
+    m = _PLACE_AT_END.search(text)
+    return m.group(1).strip() if m else None
+
+
+def mentions_location(text: str) -> bool:
+    """True when the user asks about places around the pin rather than every restaurant."""
+    return bool(_LOCATION.search(text) or any(p.search(text) for p in _DISTANCE_PATTERNS))
+
+
 _HIGH_PROTEIN = re.compile(r"\b(high|rich\s+in|lots\s+of|packed\s+with)[\s-]+protein\b|\bprotein[\s-]+(rich|packed|heavy)\b", re.I)
 _DISTANCE_PATTERNS = [
     re.compile(rf"(?:within|in|under|less\s+than|<=?|≤|max(?:imum)?|up\s+to)\s*{_NUM}\s*(km|kms|kilometers?|kilometres?|m|meters?|metres?)\b", re.I),
@@ -128,6 +198,16 @@ class RegexConstraintParser:
                 spans.append(m.span())
                 break
 
+        # A floor ("over 500 calories") is read first so the ceiling patterns below can't claim it.
+        min_calories: int | None = None
+        for pattern in _MIN_CALORIE_PATTERNS:
+            m = pattern.search(text)
+            if m:
+                min_calories = round(_num(m.group(1)))
+                spans.append(m.span())
+                break
+        text, spans = _span_remove(text, spans), []
+
         max_calories: int | None = None
         for pattern in _CALORIE_PATTERNS:
             m = pattern.search(text)
@@ -136,14 +216,27 @@ class RegexConstraintParser:
                 spans.append(m.span())
                 break
 
-        min_protein: float | None = None
-        for pattern in _PROTEIN_PATTERNS:
+        limits: dict[str, float] = {}
+        for bound, pattern in _MACRO_LIMIT_PATTERNS:
+            for m in pattern.finditer(text):
+                groups = [g for g in m.groups() if g]
+                word = next(g for g in groups if not re.fullmatch(r"[\d,.]+", g))
+                number = next(g for g in groups if re.fullmatch(r"[\d,.]+", g))
+                key = f"{bound}_{_nutrient(word)}"
+                if key not in limits:
+                    limits[key] = _num(number)
+                    spans.append(m.span())
+        # Drop the matched limits so "under 20 g protein" isn't read again as a protein minimum.
+        text, spans = _span_remove(text, spans), []
+
+        min_protein: float | None = limits.pop("min_protein_g", None)
+        for pattern in ([] if min_protein is not None or "max_protein_g" in limits else _PROTEIN_PATTERNS):
             m = pattern.search(text)
             if m:
                 min_protein = _num(m.group(1))
                 spans.append(m.span())
                 break
-        if min_protein is None:
+        if min_protein is None and "max_protein_g" not in limits:
             m = _HIGH_PROTEIN.search(text)
             if m:
                 min_protein = HIGH_PROTEIN_DEFAULT_G
@@ -182,15 +275,36 @@ class RegexConstraintParser:
             warnings.append(f"calorie limit {max_calories} ignored (max 10000)")
             max_calories = None
 
+        # Ranking: "highest protein", "low carb", "fewest calories". "High protein" also set a
+        # 20 g floor above and was already removed from `remaining`, so `text` is checked too.
+        sort_by: str | None = None
+        sort_direction: str | None = None
+        remaining = _span_remove(text, spans)
+        for direction, pattern in _SORT_PATTERNS:
+            m = pattern.search(remaining) or pattern.search(text)
+            if m:
+                sort_by, sort_direction = _nutrient(m.group(1)), direction
+                remaining = pattern.sub(" ", remaining, count=1)
+                break
+        if sort_by is None and search_order(text) != "semantic":
+            # "heavy", "filling", "light" rank by calories.
+            sort_by, sort_direction = "calories", "desc" if search_order(text) == "calories_desc" else "asc"
+        for pattern in _UNSTORED_PATTERNS:
+            remaining = pattern.sub(" ", remaining)
+
         brand = matcher.find_in_text(text)
-        semantic = _FILLER.sub(" ", _span_remove(text, spans))
+        semantic = _FILLER.sub(" ", remaining)
         semantic = re.sub(r"[^\w\s'&-]", " ", semantic)
         semantic = re.sub(r"\s+", " ", semantic).strip(" -'")
 
         constraints = SearchConstraints(
             max_calories=max_calories,
+            min_calories=min_calories,
             max_price_php=max_price,
             min_protein_g=min_protein,
+            **limits,
+            sort_by=sort_by,
+            sort_direction=sort_direction,
             max_distance_km=distance if distance is not None else default_distance_km,
             target_brand=brand,
             semantic_query=semantic[:500],
@@ -251,13 +365,14 @@ class QueryParser:
         if protein is None or ("min_protein_g" in heuristic and llm.min_protein_g is not None):
             protein = llm.min_protein_g if llm.min_protein_g is not None else protein
         try:
-            return SearchConstraints(
-                max_calories=rx.max_calories if rx.max_calories is not None else llm.max_calories,
-                max_price_php=rx.max_price_php,
-                min_protein_g=protein,
-                max_distance_km=distance,
-                target_brand=brand,
-                semantic_query=semantic[:500],
-            )
+            # Regex-parsed limits and ranking (carbs, fat, sort) are kept as they are.
+            return SearchConstraints(**{
+                **rx.model_dump(),
+                "max_calories": rx.max_calories if rx.max_calories is not None else llm.max_calories,
+                "min_protein_g": protein,
+                "max_distance_km": distance,
+                "target_brand": brand,
+                "semantic_query": semantic[:500],
+            })
         except ValidationError:
             return None

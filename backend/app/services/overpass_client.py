@@ -46,7 +46,7 @@ QUERY_CACHE_PREFIX = "food-v2:"
 OVERPASS_SEMAPHORE = asyncio.Semaphore(1)
 
 _QUERY_TEMPLATE = (
-    '[out:json][timeout:15];('
+    '[out:json][timeout:{server_timeout_s}];('
     'nwr["amenity"~"restaurant|fast_food|cafe"](around:{radius_m},{lat:.6f},{lng:.6f});'
     'nwr["shop"="convenience"]["brand"~"7[ -]?eleven",i](around:{radius_m},{lat:.6f},{lng:.6f});'
     'nwr["shop"="convenience"]["name"~"7[ -]?eleven",i](around:{radius_m},{lat:.6f},{lng:.6f});'
@@ -111,11 +111,16 @@ def in_philippines(lat: float, lng: float) -> bool:
 # ---------------------------------------------------------------------------
 
 
-def build_query(lat: float, lng: float, radius_m: int) -> str:
+def build_query(lat: float, lng: float, radius_m: int, server_timeout_s: int = 15) -> str:
     lat, lng, radius_m = float(lat), float(lng), int(radius_m)
     if not (math.isfinite(lat) and math.isfinite(lng)) or radius_m <= 0:
         raise ValueError("invalid Overpass query parameters")
-    return _QUERY_TEMPLATE.format(radius_m=radius_m, lat=lat, lng=lng)
+    return _QUERY_TEMPLATE.format(radius_m=radius_m, lat=lat, lng=lng, server_timeout_s=int(server_timeout_s))
+
+
+def server_timeout_for(client_timeout_s: float) -> int:
+    """Overpass-side query limit: at least 15 s, and 5 s under the client wait so its answer still arrives."""
+    return max(15, int(client_timeout_s) - 5)
 
 
 def _as_float(value: Any) -> float | None:
@@ -181,7 +186,7 @@ class OverpassClient:
         self._transport = transport
 
     async def fetch_pois(self, lat: float, lng: float, radius_m: int) -> list[OsmPoi]:
-        query = build_query(lat, lng, radius_m)
+        query = build_query(lat, lng, radius_m, server_timeout_for(self.timeout_s))
         errors: list[str] = []
         async with OVERPASS_SEMAPHORE:
             async with httpx.AsyncClient(
@@ -236,6 +241,8 @@ class DiscoveryResult:
     elapsed_ms: float = 0.0
     # None selects the legacy database source. An empty live result stays empty.
     places: list[dict[str, Any]] | None = None
+    # Set when a wrapper answered with a provider other than the configured one (Google fallback).
+    provider: Literal["google", "osm"] | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -278,8 +285,11 @@ class BranchDiscoveryService:
     def _cooling_down(self) -> bool:
         return time.monotonic() < self._cooldown_until
 
-    async def is_covered(self, session: AsyncSession, lat: float, lng: float, radius_m: int) -> bool:
-        cutoff = datetime.now(timezone.utc) - self.ttl
+    async def is_covered(
+        self, session: AsyncSession, lat: float, lng: float, radius_m: int, *, fresh_only: bool = True
+    ) -> bool:
+        """True when a past Overpass fetch covers the circle; with fresh_only=False, expired fetches count too."""
+        cutoff = datetime.now(timezone.utc) - self.ttl if fresh_only else datetime.min.replace(tzinfo=timezone.utc)
         pad_km = (radius_m + self.max_radius_m + GRID_PAD_M) / 1000
         min_lat, max_lat, min_lng, max_lng = bounding_box(lat, lng, pad_km)
         rows = await session.execute(
@@ -293,15 +303,19 @@ class BranchDiscoveryService:
         return any(circle_contains(c_lat, c_lng, r, lat, lng, radius_m) for c_lat, c_lng, r in rows)
 
     async def ensure_branches(
-        self, session: AsyncSession, lat: float, lng: float, radius_km: float
+        self, session: AsyncSession, lat: float, lng: float, radius_km: float, *, persist: bool = True
     ) -> DiscoveryResult:
+        """persist=False (device-location lookups) reads saved coverage but writes nothing: a live
+        fetch is returned as an in-memory place list instead of being cached or logged."""
         started = time.perf_counter()
         radius_m = max(1, min(round(radius_km * 1000), self.max_radius_m))
-        result = await self._ensure(session, lat, lng, radius_m)
+        result = await self._ensure(session, lat, lng, radius_m, persist)
         result.elapsed_ms = (time.perf_counter() - started) * 1000
         return result
 
-    async def _ensure(self, session: AsyncSession, lat: float, lng: float, radius_m: int) -> DiscoveryResult:
+    async def _ensure(
+        self, session: AsyncSession, lat: float, lng: float, radius_m: int, persist: bool = True
+    ) -> DiscoveryResult:
         if await self.is_covered(session, lat, lng, radius_m):
             return DiscoveryResult("cache", True, radius_m)
         if not self.enabled:
@@ -348,6 +362,11 @@ class BranchDiscoveryService:
                         "last_fetched_at": now,
                     }
                 )
+            if not persist:
+                places = [{k: v for k, v in row.items() if k != "last_fetched_at"} | {"place_id": None, "attributions": None}
+                          for row in rows]
+                matched = sum(1 for r in rows if r["matched_brand_slug"])
+                return DiscoveryResult("live", False, radius_m, len(rows), matched, places=places)
             await upsert_branches(session, rows)
             purged = await purge_seed_rows(session, c_lat, c_lng, fetch_radius) if rows else 0
             session.add(
@@ -362,7 +381,7 @@ class BranchDiscoveryService:
             )
             await session.commit()
             matched = sum(1 for r in rows if r["matched_brand_slug"])
-            logger.info("Overpass fetched %d POIs (%d matched) for cell %s", len(rows), matched, grid_key)
+            logger.info("Overpass fetched %d POIs (%d matched)", len(rows), matched)
             return DiscoveryResult("live", False, radius_m, len(rows), matched, purged)
 
 

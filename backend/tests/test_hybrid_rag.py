@@ -256,8 +256,9 @@ async def test_no_results_do_not_expand_radius(db_session):
 async def test_no_results_even_after_relaxation(db_session):
     await _fixture_world(db_session)
     resp = await make_service().chat(db_session, message="under 100 kcal", lat=UPM_LAT, lng=UPM_LNG)
-    assert resp.results == [] and not resp.relaxation.applied
-    assert "couldn't find" in resp.answer
+    assert resp.results == [] and resp.menu_matches == [] and not resp.relaxation.applied
+    # The answer names the limit that excluded everything instead of inventing a near match.
+    assert "No menu items with at most 100 kcal" in resp.answer and "loosening or removing" in resp.answer
     assert resp.inspector.retrieval_attempts == 1
 
 
@@ -298,7 +299,7 @@ async def test_chat_endpoint_end_to_end(session_factory, db_session):
         r = await client.post("/api/v1/chat", json={"message": "spaghetti under 500 kcal", "lat": UPM_LAT, "lng": UPM_LNG})
         assert r.status_code == 200, r.text
         body = r.json()
-        assert body["results"][0]["food_item"] == "Jolly Spaghetti"
+        assert body["menu_matches"][0]["food_item"] == "Jolly Spaghetti"  # every menu, like Search
         assert r.headers["X-Request-ID"] == body["inspector"]["request_id"]
 
         r = await client.get("/api/v1/map-items", params={"lat": UPM_LAT, "lng": UPM_LNG, "radius_km": 3,

@@ -6,6 +6,10 @@ import FavoriteButton from "./FavoriteButton.jsx";
 import SourcePhoto from "./SourcePhoto.jsx";
 import AddToPlan from "./AddToPlan.jsx";
 import { MenuRecords } from "./MapPopup.jsx";
+import { CatalogSearchResults } from "./CatalogBrands.jsx";
+import { formatCalories, formatGrams, knownMacros } from "../macros.js";
+
+const RANK_LABELS = { calories: "calories", protein_g: "protein", carbs_g: "carbs", fat_g: "fat" };
 
 const CHIPS = [
   { label: "Heavy snack", text: "heavy snack" },
@@ -14,17 +18,16 @@ const CHIPS = [
 ];
 
 const SOURCE_LABELS = { official: "Brand-published nutrition", community_reported: "Community-reported nutrition", estimated: "Estimated nutrition", unknown: "Source type unavailable" };
-const fmtG = (v) => (v == null ? "—" : `${Number(v).toLocaleString(undefined, { maximumFractionDigits: 2 })} g`);
 
 export function NutritionPanel({ item, index, onLocate, preview = false, goals, isFavorite, onToggleFavorite }) {
   return <article className="nutrition-card">
     <SourcePhoto item={item} />
-    <div className="nutrition-heading flex items-start justify-between gap-3"><div><p className="eyebrow mb-2">{item.brand_name}</p><h2>{item.food_item}</h2></div>{preview ? <span className="text-sm text-slate-mute">Pending review</span> : <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-mango text-xs font-bold text-white" aria-label={`Map pin ${index}`}>{index}</span>}</div>
+    <div className="nutrition-heading flex items-start justify-between gap-3"><div><p className="eyebrow mb-2">{item.brand_name}</p><h2>{item.food_item}</h2></div>{preview ? <span className="text-sm text-slate-mute">Pending review</span> : <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-mango text-xs font-medium text-white" aria-label={`Map pin ${index}`}>{index}</span>}</div>
     <p className="mt-2 text-xs text-slate-mute">{item.serving_size || "Serving size unavailable"}</p>
     <GoalBadge item={item} goals={goals} />
     {item.source_classification && <p className="mt-1 text-sm text-slate-mute">{SOURCE_LABELS[item.source_classification]}</p>}
-    <div className="kcal-row"><strong className="num">{item.calories} <span>kcal</span></strong><span>Calories</span></div>
-    <dl className="nutrition-macros">{[["Protein", item.protein_g], ["Carbs", item.carbs_g], ["Fat", item.fat_g]].map(([name, value]) => <div key={name}><dt>{name}</dt><dd className="num">{fmtG(value)}</dd></div>)}</dl>
+    <div className="kcal-row"><strong className="num">{formatCalories(item)} <span>kcal</span></strong><span>Calories</span></div>
+    {knownMacros(item).length > 0 && <dl className="nutrition-macros">{knownMacros(item).map(([name, value]) => <div key={name}><dt>{name}</dt><dd className="num">{formatGrams(value)}</dd></div>)}</dl>}
     <div className="price-note">{item.price_php == null ? "Price unavailable" : `Source price ₱${item.price_php.toFixed(2)}`}
       {item.price_php != null && <small>Branch prices may vary. {/^https?:\/\//i.test(item.price_source_url || "") && <a className="underline" href={item.price_source_url} target="_blank" rel="noreferrer">Price source</a>}</small>}
     </div>
@@ -47,7 +50,7 @@ function Message({ msg, onLocate, searchContext, isFavorite, onToggleFavorite })
   if (msg.role === "error") {
     return (
       <div className="border-l-4 border-warn bg-label px-3 py-2 text-sm" role="alert">
-        <p className="font-bold text-warn">{msg.title}</p>
+        <p className="font-medium text-warn">{msg.title}</p>
         <p>{msg.text}</p>
       </div>
     );
@@ -75,6 +78,11 @@ export function MealResults({ response, onLocate, isFavorite, onToggleFavorite }
     {response.answer && <p className="result-note">{response.answer}</p>}
     {response.catalog_answers?.length > 0 && <details className="catalog-answer-details"><summary>View menu sources and details</summary><MenuRecords items={response.catalog_answers} /></details>}
     {response.relaxation.applied && <p className="result-note">{response.relaxation.notice}</p>}
+    {response.menu_matches?.length > 0 && <section className="chat-menu-matches" aria-label={response.ranking ? `Ranked by ${RANK_LABELS[response.ranking.field]}` : "Menu matches"}>
+      {response.ranking
+        ? <MenuRecords items={response.menu_matches} goals={response.inspector?.constraints} ranked label={`${response.ranking.direction === "desc" ? "Highest" : "Lowest"} ${RANK_LABELS[response.ranking.field]} first`} />
+        : <CatalogSearchResults items={response.menu_matches} filters={response.inspector?.constraints} summary={false} />}
+    </section>}
     {response.results.length > 0 && <RestaurantResults items={response.results} {...shared} />}
     {response.catalog_matches?.length > 0 && <section aria-label="Catalog matches pending review"><p className="result-note">Source menus · Pending review</p><RestaurantResults items={response.catalog_matches} preview {...shared} /></section>}
   </div>;
@@ -99,12 +107,12 @@ export default function ChatPanel({ messages, onSend, busy, onLocate, searchCont
     <section className="flex h-full min-h-0 flex-col" aria-label="Chat">
       <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-4" aria-live="polite">
         {messages.length === 0 && (
-          <div className="chat-empty"><h2>Search for a meal</h2><p>Try a dish or restaurant name. You can add a calorie, protein or budget limit.</p><p className="mt-3">For example: “chicken under 500 kcal”.</p></div>
+          <div className="chat-empty"><h2>Search for a meal</h2><p>Try a dish or restaurant name. You can add a calorie, protein, carbs, fat or budget limit, or ask for the highest or lowest.</p><p className="mt-3">For example: “highest protein item at KFC” or “low carb chicken under 500 kcal”.</p></div>
         )}
         {messages.map((m, index) => (
           <Message key={`${m.id}-${index}`} msg={m} onLocate={onLocate} searchContext={searchContext} isFavorite={isFavorite} onToggleFavorite={onToggleFavorite} />
         ))}
-        {busy && <p className="text-sm text-slate-mute">Checking nearby restaurants…</p>}
+        {busy && <p className="text-sm text-slate-mute">Searching menus…</p>}
         <div ref={endRef} />
       </div>
 
@@ -137,7 +145,7 @@ export default function ChatPanel({ messages, onSend, busy, onLocate, searchCont
             value={draft}
             maxLength={500}
             onChange={(e) => setDraft(e.target.value)}
-            placeholder="Ask about a meal…"
+            placeholder="Ask about a meal"
             className="chat-input"
           />
           <button
