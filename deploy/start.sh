@@ -9,7 +9,7 @@ rm -rf "$work"
 python -m app.db.seed
 
 # Each committed catalog goes through the same review checks and loader, all as pending review.
-for catalog in anongcaloriesnito kfc-official; do
+for catalog in anongcaloriesnito kfc-official manual-intake; do
     python -m app.services.source_review \
         --candidates "catalog/$catalog.pending.json" \
         --output "$work/$catalog/review/reviewed.csv"

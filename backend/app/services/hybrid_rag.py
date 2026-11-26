@@ -74,7 +74,8 @@ WITH nearby AS (
 ),
 candidates AS (
     SELECT DISTINCT ON (n.id)
-           n.id AS item_id, n.brand_name, n.brand_slug, n.food_item, n.calories,
+           n.id AS item_id, n.brand_name, n.brand_slug, n.food_item,
+           COALESCE(CAST(n.provenance->'calorie_bounds'->>1 AS numeric), n.calories) AS calories,
            n.protein_g, n.carbs_g, n.fat_g, n.serving_size, n.is_verified, n.source_post_url,
            n.price_php, n.price_source_url, n.source_images, n.provenance,
            nb.place_id, nb.attributions, nb.osm_type, nb.osm_id, nb.poi_name, nb.amenity_type, nb.latitude, nb.longitude,
@@ -119,7 +120,7 @@ catalog AS (
            COUNT(*) FILTER (WHERE is_verified) AS item_count,
            COUNT(*) AS catalog_item_count,
            COUNT(*) FILTER (WHERE NOT is_verified) AS pending_item_count,
-           MIN(calories) FILTER (WHERE is_verified) AS min_calories,
+           MIN(COALESCE(CAST(provenance->'calorie_bounds'->>0 AS numeric), calories)) FILTER (WHERE is_verified) AS min_calories,
            MAX(protein_g) FILTER (WHERE is_verified) AS max_protein_g
     FROM nutrition_catalog
     WHERE is_active AND (is_verified OR CAST(:include_pending AS boolean))
@@ -146,7 +147,9 @@ PLACES_MAP_SQL = text(_MAP_QUERY.format(branches=_PLACES_FROM))
 
 BRAND_ITEMS_SQL = text(
     """
-SELECT id AS item_id, brand_name, food_item, calories, protein_g, carbs_g, fat_g, serving_size,
+SELECT id AS item_id, brand_name, food_item,
+       COALESCE(CAST(provenance->'calorie_bounds'->>1 AS numeric), calories) AS calories,
+       protein_g, carbs_g, fat_g, serving_size,
        is_verified, source_post_url, price_php, price_source_url, source_images, provenance
 FROM nutrition_catalog
 WHERE brand_slug = :brand_slug AND is_active AND (is_verified OR CAST(:include_pending AS boolean))
@@ -158,7 +161,9 @@ LIMIT 250
 
 def _source_evidence(provenance: dict | None) -> dict[str, Any]:
     metadata = provenance or {}
+    bounds = metadata.get("calorie_bounds")
     return {"source_classification": metadata.get("source_classification", "unknown"),
+            "calories_min": bounds[0] if bounds and bounds[0] != bounds[1] else None,
             "collected_at": metadata.get("collected_at"),
             "secondary_source_url": metadata.get("secondary_source_url"),
             "nutrition_source_url": metadata.get("nutrition_source_url")}
@@ -417,7 +422,9 @@ class HybridRagService:
             if pattern is None and constraints.target_brand is None:
                 return direct_reply("Which dish or restaurant do you mean? For example: ‘How many calories are in Conti’s Lemon Squares?’")
             rows = (await session.execute(text("""
-                SELECT id AS item_id, brand_name, food_item, calories, protein_g, carbs_g, fat_g,
+                SELECT id AS item_id, brand_name, food_item,
+                       COALESCE(CAST(provenance->'calorie_bounds'->>1 AS numeric), calories) AS calories,
+                       protein_g, carbs_g, fat_g,
                        serving_size, is_verified, source_post_url, price_php, price_source_url, source_images, provenance
                 FROM nutrition_catalog WHERE is_active
                   AND (CAST(:pattern AS text) IS NULL OR food_item ~* CAST(:pattern AS text))

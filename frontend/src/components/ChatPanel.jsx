@@ -6,7 +6,7 @@ import FavoriteButton from "./FavoriteButton.jsx";
 import SourcePhoto from "./SourcePhoto.jsx";
 import AddToPlan from "./AddToPlan.jsx";
 import { MenuRecords } from "./MapPopup.jsx";
-import { formatGrams, knownMacros } from "../macros.js";
+import { formatCalories, formatGrams, knownMacros } from "../macros.js";
 
 const CHIPS = [
   { label: "Heavy snack", text: "heavy snack" },
@@ -23,7 +23,7 @@ export function NutritionPanel({ item, index, onLocate, preview = false, goals, 
     <p className="mt-2 text-xs text-slate-mute">{item.serving_size || "Serving size unavailable"}</p>
     <GoalBadge item={item} goals={goals} />
     {item.source_classification && <p className="mt-1 text-sm text-slate-mute">{SOURCE_LABELS[item.source_classification]}</p>}
-    <div className="kcal-row"><strong className="num">{item.calories} <span>kcal</span></strong><span>Calories</span></div>
+    <div className="kcal-row"><strong className="num">{formatCalories(item)} <span>kcal</span></strong><span>Calories</span></div>
     {knownMacros(item).length > 0 && <dl className="nutrition-macros">{knownMacros(item).map(([name, value]) => <div key={name}><dt>{name}</dt><dd className="num">{formatGrams(value)}</dd></div>)}</dl>}
     <div className="price-note">{item.price_php == null ? "Price unavailable" : `Source price ₱${item.price_php.toFixed(2)}`}
       {item.price_php != null && <small>Branch prices may vary. {/^https?:\/\//i.test(item.price_source_url || "") && <a className="underline" href={item.price_source_url} target="_blank" rel="noreferrer">Price source</a>}</small>}

@@ -29,6 +29,8 @@ _BRANCH_SEPARATOR = re.compile(r"\s+[-–—|/@]\s*|\s*[|(\[]|\s*[–—]\s*")
 
 # alias (normalized) -> canonical slug. Only aliases whose target exists in the catalog are used.
 BRAND_ALIASES: dict[str, str] = {
+    "bon chon": "bonchon",
+    "armynavy": "army navy",
     "andoks litson manok": "andoks",
     "andoks litson": "andoks",
     "kenny rogers": "kenny rogers roasters",

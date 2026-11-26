@@ -17,7 +17,7 @@ def direct_answer(items, field):
     for item in items:
         name = f"{item.brand_name} · {item.food_item}"
         if field == "calories":
-            value = f"{item.calories} kcal"
+            value = f"{item.calorie_label} kcal"
         elif field == "price":
             value = (f"Source price PHP {item.price_php:.2f}; confirm at the branch" if item.price_php is not None and item.is_verified and item.price_source_url else "No checked price is available")
         elif field == "macros":
@@ -47,6 +47,6 @@ def snack_answer(items, query, max_calories=None):
     else:
         lead = "Lower-calorie snack matches first"
     first = items[0]
-    return (f"{lead}. {first.food_item} at {first.brand_name} is listed at {first.calories} kcal. "
+    return (f"{lead}. {first.food_item} at {first.brand_name} is listed at {first.calorie_label} kcal. "
             "Compare the portions and other options below."
             + (" Source values are pending review." if any(not item.is_verified for item in items) else ""))

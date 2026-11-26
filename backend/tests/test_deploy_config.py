@@ -67,7 +67,7 @@ async def test_page_revalidates_while_hashed_assets_cache(tmp_path):
     assert "cache-control" not in api.headers
 
 
-@pytest.mark.parametrize("name,count", [("anongcaloriesnito", 121), ("kfc-official", 104)])
+@pytest.mark.parametrize("name,count", [("anongcaloriesnito", 121), ("kfc-official", 104), ("manual-intake", 563)])
 def test_committed_catalogs_pass_review_as_pending(tmp_path, name, count):
     # deploy/start.sh loads these at every boot; a failing file would stop the hosted app.
     from pathlib import Path

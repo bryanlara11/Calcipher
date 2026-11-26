@@ -57,6 +57,15 @@ class ChatRequest(BaseModel):
 
 
 class SourceEvidence(BaseModel):
+    calories: int | float = Field(union_mode="left_to_right")
+    calories_min: int | float | None = None
+
+    @property
+    def calorie_label(self) -> str:
+        if self.calories_min is None:
+            return f"{self.calories:g}"
+        return f"{self.calories_min:g}–{self.calories:g}"
+
     rating_updated_at: datetime | None = None
     rating_average: float | None = None
     rating_count: int = 0
@@ -73,7 +82,6 @@ class RetrievedItem(SourceEvidence):
     brand_name: str
     brand_slug: str
     food_item: str
-    calories: int
     protein_g: float | None
     carbs_g: float | None
     fat_g: float | None
@@ -160,7 +168,7 @@ class BranchPin(BaseModel):
     catalog_item_count: int = 0
     pending_item_count: int = 0
     item_count: int
-    min_calories: int | None
+    min_calories: int | float | None
     max_protein_g: float | None
 
 
@@ -190,7 +198,6 @@ class CatalogItem(SourceEvidence):
     item_id: str
     brand_name: str
     food_item: str
-    calories: int
     protein_g: float | None
     carbs_g: float | None
     fat_g: float | None

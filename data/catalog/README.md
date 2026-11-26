@@ -1,5 +1,17 @@
 # Instagram-origin brands with sourced nutrition
 
+## Manual menu intake, 2026-11-26
+
+`manual-intake.pending.json` adds 563 items across 11 brands. The intake contained
+584 lines, including paired sizes and preparations. After separating these variants,
+21 entries repeated another intake entry and 27 were already in the published catalogs.
+Submitted menus and serving notes are retained with each new record. All are pending review.
+
+For the eight calorie ranges and two fractional values, `calorie_bounds` stores the
+exact lower and upper values (equal for a single value). The existing integer calorie
+index stores the ceiling of the upper value for whole-kcal filters. Menu and meal-plan
+displays use the source values. A range satisfies a maximum only if its upper end fits.
+
 ## KFC (official Philippine nutrition table)
 
 `kfc-official.pending.json` adds **104 pending KFC records** at the user's request (2026-11-26).

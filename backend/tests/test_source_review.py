@@ -52,6 +52,24 @@ def test_preparation_never_approves_automatically_and_preserves_unknowns(tmp_pat
     assert item.source_images == ["SYNTHETIC_2.png"]
 
 
+@pytest.mark.db
+async def test_source_calorie_bounds_survive_menus_and_filters(tmp_path, db_session, monkeypatch, pg_url):
+    _use_test_db(monkeypatch, pg_url)
+    source, review, _ = files(tmp_path, [
+        candidate(food_item="Combo", calories=576, calorie_bounds=[446, 576]),
+        candidate(record_id="TEST-002", food_item="Coffee", calories=1, calorie_bounds=[0.11, 0.11], protein_g=None),
+    ])
+    prepare_review(source, review)
+    assert (await load_reviewed(review))["written"] == 2
+    menu = await brand_items(db_session, "synthetic chain", include_pending=True)
+    assert [item.calorie_label for item in menu] == ["0.11", "446–576"]
+    await add_branch(db_session, osm_id=502, poi_name="Synthetic Chain", lat=UPM_LAT, lng=UPM_LNG, slug="synthetic chain")
+    for cap, expected in [(0, set()), (500, {"0.11"}), (576, {"0.11", "446–576"})]:
+        matches = await retrieve(db_session, lat=UPM_LAT, lng=UPM_LNG, constraints=SearchConstraints(max_calories=cap),
+                                 query_vec=HashingEmbedder().embed_one("menu"), pending_only=True)
+        assert {item.calorie_label for item in matches.items} == expected
+
+
 def test_receipt_approves_only_selected_ids(tmp_path):
     source, output, receipt = files(tmp_path, [candidate(), candidate(record_id="TEST-002", food_item="Other bowl")], ["TEST-002"])
     prepare_review(source, output, receipt)

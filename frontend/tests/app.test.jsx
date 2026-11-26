@@ -507,7 +507,7 @@ describe("home, goals and saved restaurants", () => {
   });
   it("saves a pending meal to a plan, restores it and removes it without inventing missing macros", async () => {
     fetch.mockImplementation(async url => response(url.includes("map-config") ? { provider: "osm" } : {
-      results: [], catalog_matches: [sample], answer: "Synthetic pending meal", relaxation: { applied: false },
+      results: [], catalog_matches: [{ ...sample, calories_min: 446, calories: 576 }], answer: "Synthetic pending meal", relaxation: { applied: false },
       inspector: { generator_used: "template", constraints: { max_calories: 500 } },
     }));
     const view = render(<App />);
@@ -529,6 +529,7 @@ describe("home, goals and saved restaurants", () => {
     expect(JSON.parse(localStorage.getItem(PLAN_KEY))).toHaveLength(1);
     view.unmount(); render(<App />);
     expect(screen.getByRole("heading", { name: "Synthetic test bowl" })).toBeTruthy();
+    expect(screen.getAllByText("446–576 kcal").length).toBeGreaterThanOrEqual(2);
     await userEvent.click(screen.getByRole("button", { name: "Remove Synthetic test bowl from meal plan" }));
     expect(screen.queryByRole("heading", { name: "Synthetic test bowl" })).toBeNull();
     expect(JSON.parse(localStorage.getItem(PLAN_KEY))).toEqual([]);

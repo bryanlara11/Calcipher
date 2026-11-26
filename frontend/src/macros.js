@@ -9,3 +9,8 @@ export function knownMacros(item) {
 }
 
 export const formatGrams = value => `${value.toLocaleString(undefined, { maximumFractionDigits: 2 })} g`;
+
+export function formatCalories({ calories, calories_min }) {
+  return calories_min == null || calories_min === calories
+    ? String(calories) : `${calories_min}–${calories}`;
+}

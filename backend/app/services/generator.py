@@ -35,7 +35,7 @@ _CALORIE_MENTION = re.compile(r"(\d[\d,]*(?:\.\d+)?)\s*(?:kcal|calories|cal)\b",
 
 
 def _record_payload(items: Sequence[RetrievedItem]) -> str:
-    keys = ("item_id", "food_item", "brand_name", "calories", "protein_g", "carbs_g", "fat_g", "serving_size",
+    keys = ("item_id", "food_item", "brand_name", "calories", "calories_min", "protein_g", "carbs_g", "fat_g", "serving_size",
             "poi_name", "distance_km", "is_verified", "price_php", "price_source_url", "source_post_url")
     return json.dumps([{k: getattr(i, k) for k in keys} for i in items], ensure_ascii=False)
 
@@ -47,7 +47,7 @@ def grounding_ok(
     allowed = {i.calories for i in items} | {c for c in calorie_limits if c is not None}
     for m in _CALORIE_MENTION.finditer(answer):
         value = float(m.group(1).replace(",", ""))
-        if not value.is_integer() or int(value) not in allowed:
+        if value not in allowed:
             return False
     return True
 
@@ -75,7 +75,7 @@ def template_answer(items: Sequence[RetrievedItem], constraints: SearchConstrain
     for n, it in enumerate(items, 1):
         lines.append(
             f"{n}. {it.food_item} — {it.brand_name} ({it.poi_name}, {it.distance_km:.2f} km): "
-            f"{it.calories} kcal, protein {_fmt_g(it.protein_g)}, carbs {_fmt_g(it.carbs_g)}, "
+            f"{it.calorie_label} kcal, protein {_fmt_g(it.protein_g)}, carbs {_fmt_g(it.carbs_g)}, "
             f"fat {_fmt_g(it.fat_g)} · {it.serving_size or 'serving size unavailable'}"
             + (f" · PHP {it.price_php:.2f} (source price; branch prices may vary)"
                if it.price_php is not None else " · price unavailable")

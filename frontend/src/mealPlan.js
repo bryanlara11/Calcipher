@@ -16,7 +16,8 @@ function validDay(day) {
 }
 function validItem(item) {
   return item && typeof item.item_id === "string" && typeof item.food_item === "string"
-    && typeof item.brand_name === "string" && Number.isFinite(item.calories) && item.calories >= 0 && item.calories <= 10000;
+    && typeof item.brand_name === "string" && Number.isFinite(item.calories) && item.calories >= 0 && item.calories <= 10000
+    && (item.calories_min == null || Number.isFinite(item.calories_min) && item.calories_min >= 0 && item.calories_min <= item.calories);
 }
 function parse(value) {
   try {
@@ -31,6 +32,11 @@ export function nutritionTotals(entries, field) {
       : { ...total, known: total.known + value };
   }, { known: 0, missing: 0 });
 }
+export function calorieTotals(entries) {
+  const upper = entries.reduce((sum, { item }) => sum + item.calories, 0);
+  const lower = entries.reduce((sum, { item }) => sum + (item.calories_min ?? item.calories), 0);
+  return { calories: Number(upper.toFixed(6)), calories_min: Number(lower.toFixed(6)) };
+}
 export function useMealPlan() {
   const [entries, setEntries] = useState(() => { try { return parse(localStorage.getItem(PLAN_KEY)); } catch { return []; } });
   const [targets, setTargets] = useState(() => { try { const saved = JSON.parse(localStorage.getItem(TARGETS_KEY) || "{}"); return Object.fromEntries(Object.entries(saved).filter(([day,value]) => validDay(day) && Number.isInteger(value) && value > 0 && value <= 10000)); } catch { return {}; } });
@@ -41,7 +47,7 @@ export function useMealPlan() {
   }, [entries, targets]);
   const add = (item, day, slot) => {
     if (!validDay(day) || !MEAL_SLOTS[slot] || !validItem(item)) return false;
-    const safe = Object.fromEntries(["item_id", "food_item", "brand_name", "calories", "protein_g", "carbs_g", "fat_g", "serving_size", "is_verified", "source_post_url", "nutrition_source_url", "source_images"].map(key => [key, item[key]]));
+    const safe = Object.fromEntries(["item_id", "food_item", "brand_name", "calories", "calories_min", "protein_g", "carbs_g", "fat_g", "serving_size", "is_verified", "source_post_url", "nutrition_source_url", "source_images"].map(key => [key, item[key]]));
     setEntries(current => current.some(row => row.day === day && row.slot === slot && row.item.item_id === item.item_id) ? current
       : [...current, { id: globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}`, day, slot, item: safe }]);
     return true;

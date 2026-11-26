@@ -1,7 +1,7 @@
 import MealRating from "./MealRating.jsx";
 import { useId, useState } from "react";
 import { useBrandMenu } from "../menuCache.js";
-import { formatGrams, knownMacros } from "../macros.js";
+import { formatCalories, formatGrams, knownMacros } from "../macros.js";
 import GoalBadge from "./GoalBadge.jsx";
 import FavoriteButton from "./FavoriteButton.jsx";
 import SourcePhoto from "./SourcePhoto.jsx";
@@ -36,7 +36,7 @@ export function MenuRecords({ items, goals }) {
         <SourcePhoto item={item} />
         <div className="menu-record-heading">
           <h3>{item.food_item}</h3>
-          <p className="menu-energy"><strong className="num">{item.calories}</strong><span>kcal</span></p>
+          <p className="menu-energy"><strong className="num">{formatCalories(item)}</strong><span>kcal</span></p>
         </div>
         <div className="menu-record-status"><span className="review-pill">{item.is_verified ? "Checked against source" : "Pending review"}</span></div>
         <GoalBadge item={item} goals={goals} />
