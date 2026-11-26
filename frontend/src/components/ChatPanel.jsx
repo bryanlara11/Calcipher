@@ -6,6 +6,7 @@ import FavoriteButton from "./FavoriteButton.jsx";
 import SourcePhoto from "./SourcePhoto.jsx";
 import AddToPlan from "./AddToPlan.jsx";
 import { MenuRecords } from "./MapPopup.jsx";
+import { formatGrams, knownMacros } from "../macros.js";
 
 const CHIPS = [
   { label: "Heavy snack", text: "heavy snack" },
@@ -14,7 +15,6 @@ const CHIPS = [
 ];
 
 const SOURCE_LABELS = { official: "Brand-published nutrition", community_reported: "Community-reported nutrition", estimated: "Estimated nutrition", unknown: "Source type unavailable" };
-const fmtG = (v) => (v == null ? "—" : `${Number(v).toLocaleString(undefined, { maximumFractionDigits: 2 })} g`);
 
 export function NutritionPanel({ item, index, onLocate, preview = false, goals, isFavorite, onToggleFavorite }) {
   return <article className="nutrition-card">
@@ -24,7 +24,7 @@ export function NutritionPanel({ item, index, onLocate, preview = false, goals, 
     <GoalBadge item={item} goals={goals} />
     {item.source_classification && <p className="mt-1 text-sm text-slate-mute">{SOURCE_LABELS[item.source_classification]}</p>}
     <div className="kcal-row"><strong className="num">{item.calories} <span>kcal</span></strong><span>Calories</span></div>
-    <dl className="nutrition-macros">{[["Protein", item.protein_g], ["Carbs", item.carbs_g], ["Fat", item.fat_g]].map(([name, value]) => <div key={name}><dt>{name}</dt><dd className="num">{fmtG(value)}</dd></div>)}</dl>
+    {knownMacros(item).length > 0 && <dl className="nutrition-macros">{knownMacros(item).map(([name, value]) => <div key={name}><dt>{name}</dt><dd className="num">{formatGrams(value)}</dd></div>)}</dl>}
     <div className="price-note">{item.price_php == null ? "Price unavailable" : `Source price ₱${item.price_php.toFixed(2)}`}
       {item.price_php != null && <small>Branch prices may vary. {/^https?:\/\//i.test(item.price_source_url || "") && <a className="underline" href={item.price_source_url} target="_blank" rel="noreferrer">Price source</a>}</small>}
     </div>

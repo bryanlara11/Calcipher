@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, it, expect, vi } from "vitest";
 import { readFileSync } from "node:fs";
@@ -520,7 +520,12 @@ describe("home, goals and saved restaurants", () => {
     await userEvent.click(screen.getByRole("link", { name: "Meal plan", exact: true }));
     expect(screen.getByRole("heading", { name: "Synthetic test bowl" })).toBeTruthy();
     expect(screen.getByText(/Pending review ·/)).toBeTruthy();
-    expect(screen.getByText("1 meal is missing carbs")).toBeTruthy();
+    // The only planned meal has protein but no carbs or fat: those totals are hidden, not blank.
+    const totals = document.querySelector(".plan-totals");
+    expect(within(totals).getByText("Protein")).toBeTruthy();
+    expect(within(totals).getByText("20.25 g")).toBeTruthy();
+    expect(within(totals).queryByText("Carbs")).toBeNull();
+    expect(within(totals).queryByText(/Unavailable|missing/)).toBeNull();
     expect(JSON.parse(localStorage.getItem(PLAN_KEY))).toHaveLength(1);
     view.unmount(); render(<App />);
     expect(screen.getByRole("heading", { name: "Synthetic test bowl" })).toBeTruthy();

@@ -1,13 +1,13 @@
 import MealRating from "./MealRating.jsx";
 import { useId, useState } from "react";
 import { useBrandMenu } from "../menuCache.js";
+import { formatGrams, knownMacros } from "../macros.js";
 import GoalBadge from "./GoalBadge.jsx";
 import FavoriteButton from "./FavoriteButton.jsx";
 import SourcePhoto from "./SourcePhoto.jsx";
 import AddToPlan from "./AddToPlan.jsx";
 
 const SOURCE_LABELS = { official: "Official nutrition", community_reported: "Community-reported nutrition", estimated: "Estimated nutrition" };
-const grams = value => value == null ? "Unavailable" : `${Number(value).toLocaleString(undefined, { maximumFractionDigits: 2 })} g`;
 const hasWebSource = url => /^https?:\/\//i.test(url || "");
 const isInstagramPost = url => /^https:\/\/(www\.)?instagram\.com\//i.test(url || "");
 
@@ -41,9 +41,9 @@ export function MenuRecords({ items, goals }) {
         <div className="menu-record-status"><span className="review-pill">{item.is_verified ? "Checked against source" : "Pending review"}</span></div>
         <GoalBadge item={item} goals={goals} />
         <p className="menu-serving">{item.serving_size || "Serving size unavailable"}</p>
-        <dl className="menu-macros">{[["Protein", item.protein_g], ["Carbs", item.carbs_g], ["Fat", item.fat_g]].map(([label, value]) =>
-          <div key={label}><dt>{label}</dt><dd className="num">{grams(value)}</dd></div>)}
-        </dl>
+        {knownMacros(item).length > 0 && <dl className="menu-macros">{knownMacros(item).map(([label, value]) =>
+          <div key={label}><dt>{label}</dt><dd className="num">{formatGrams(value)}</dd></div>)}
+        </dl>}
         <p className="menu-price">{item.price_php == null ? "Price unavailable" : `Source price ₱${item.price_php.toFixed(2)}`}</p>
         <MealRating item={item} /><AddToPlan item={item} />
         <footer className="menu-evidence">

@@ -294,3 +294,25 @@ describe("source links", () => {
     expect(screen.getByText("Official nutrition")).toBeTruthy();
   });
 });
+
+describe("missing macronutrients", () => {
+  it("shows only the macros a record reports and drops the row when it has none", async () => {
+    const { MenuRecords } = await import("../src/components/MapPopup.jsx");
+    const { NutritionPanel } = await import("../src/components/ChatPanel.jsx");
+    const partial = { ...menuItem("Synthetic partial"), protein_g: 12.5 };
+    const none = { ...menuItem("Synthetic bare"), item_id: "bare" };
+    const { container, unmount } = render(<MenuRecords items={[partial, none]} />);
+    const [withProtein, bare] = container.querySelectorAll(".menu-record");
+    expect(within(withProtein).getByText("Protein")).toBeTruthy();
+    expect(within(withProtein).getByText("12.5 g")).toBeTruthy();
+    expect(within(withProtein).queryByText("Carbs")).toBeNull();
+    expect(within(withProtein).queryByText("Fat")).toBeNull();
+    expect(bare.querySelector(".menu-macros")).toBeNull();
+    expect(screen.queryByText(/Unavailable|—/)).toBeNull();
+    unmount();
+
+    const card = render(<NutritionPanel item={{ ...none, brand_name: "Synthetic", latitude: 14.58, longitude: 120.98, distance_km: .2 }} index={1} preview />);
+    expect(card.container.querySelector(".nutrition-macros")).toBeNull();
+    expect(screen.getByText("321")).toBeTruthy(); // calories still shown
+  });
+});
