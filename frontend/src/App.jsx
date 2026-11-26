@@ -142,13 +142,17 @@ export default function App() {
   ), [catalogPins, category, restaurantQuery]);
 
   useEffect(() => {
-    if ((!searchViewport && preferences.mapsEnabled) || page !== "nearby" || !config) return;
+    // A visible map reports the area it shows; wait for that. In List view a hidden map can't
+    // report anything, so search the pin's radius instead of waiting forever.
+    const waitForMap = !searchViewport && preferences.mapsEnabled && effectiveMapView === "map";
+    if (waitForMap || page !== "nearby" || !config) return;
+    const searchBox = searchViewport ?? radiusViewport(location, radiusKm * 1000);
     const ctrl = new AbortController();
     clearTimeout(debounce.current);
     debounce.current = setTimeout(() => {
       if (Date.now() < quotaUntilRef.current) return; // cooling down: don't even ask the backend
       setMapBusy(true);
-      mapItems({ provider, ...location, radiusKm, viewport: searchViewport, includeUnmatched: false, includePending: true, deviceLocation: pinFromDevice, signal: ctrl.signal })
+      mapItems({ provider, ...location, radiusKm, viewport: searchBox, includeUnmatched: false, includePending: true, deviceLocation: pinFromDevice, signal: ctrl.signal })
         .then((d) => {
           if (ctrl.signal.aborted) return;
           setMapData(d);
@@ -168,7 +172,7 @@ export default function App() {
       ctrl.abort();
       setMapBusy(false);
     };
-  }, [location, radiusKm, searchViewport, retry, page, config, provider, preferences.mapsEnabled, pinFromDevice]);
+  }, [location, radiusKm, searchViewport, retry, page, config, provider, preferences.mapsEnabled, pinFromDevice, effectiveMapView]);
 
   const placePin = useCallback((next, nextSearchViewport) => {
     setGeoError(null);
@@ -417,7 +421,7 @@ export default function App() {
             {mapAllowed && <div className="nearby-map-shell" hidden={nearbyView !== "map"}><CalorieMap provider={mapProvider} location={location} onMove={moveTo} onViewport={onViewport} radiusKm={previewMeters / 1000} pins={pins} results={lastChat?.results ?? EMPTY} focus={focus} theme={appearance.theme} goals={activeGoals} isFavorite={isFavorite} onToggleFavorite={toggleFavorite} />
               <div className="map-key"><span><i className="legend-dot nutrition-dot" />Reviewed</span><span><i className="legend-dot other-dot" />Pending review</span><span><i className="legend-dot location-dot" />Your pin</span></div>
             </div>}
-            {nearbyView === "list" && <div className="nearby-list"><h2>Restaurants by brand</h2>{pins.length ? <BrandDirectory key={`${restaurantQuery}-${category}-${sortOrder}`} sortOrder={sortOrder} pins={pins} openMenus={openMenus} onToggleMenu={toggleMenu} goals={activeGoals} isFavorite={isFavorite} onToggleFavorite={toggleFavorite} onLocate={pin => { locate(pin); if (preferences.mapsEnabled) setMapView("map"); }} /> : <p>{mapBusy ? "Finding nearby places…" : mapError || discoveryWarning ? "Restaurant listings are temporarily unavailable." : "No catalog locations in this area. Try a wider radius."}</p>}{mapProvider === "google" && <p>Restaurant locations from Google Maps.</p>}</div>}
+            {nearbyView === "list" && <div className="nearby-list"><h2>Restaurants by brand</h2>{pins.length ? <BrandDirectory key={`${restaurantQuery}-${category}-${sortOrder}`} sortOrder={sortOrder} pins={pins} openMenus={openMenus} onToggleMenu={toggleMenu} goals={activeGoals} isFavorite={isFavorite} onToggleFavorite={toggleFavorite} onLocate={pin => { locate(pin); if (preferences.mapsEnabled) setMapView("map"); }} /> : <p>{mapBusy ? "Finding nearby places…" : mapError || discoveryWarning ? "Restaurant listings are temporarily unavailable." : !mapData ? "Finding nearby places…" : "No catalog locations in this area. Try a wider radius."}</p>}{mapProvider === "google" && <p>Restaurant locations from Google Maps.</p>}</div>}
             <p className="nearby-footnote">{mapProvider === "osm" ? "OpenStreetMap locations · " : "Google Maps locations · "}Menus and source prices may vary by branch.</p>
           </section>}
           {page === "chat" && <section className="chat-page"><div className="page-title-row"><div><h1 ref={heading} tabIndex={-1}>Meal chat</h1></div>{preferences.developerTools && <button className="text-button" type="button" onClick={() => { setShowInspector(true); setInspectorOpen(true); }}>Retrieval details</button>}</div><p className="chat-page-context">Searching within {formatRadius(radiusMeters)} of your pin. <a href="#/nearby">Change area</a></p>{preferences.developerTools && showInspector && <div className="inspector-layer"><RagInspector open={inspectorOpen} onToggle={() => setInspectorOpen(value => !value)} onClose={() => { setShowInspector(false); setInspectorOpen(false); }} chat={lastChat} map={mapData} /></div>}<div className="chat-page-panel">{chatDiscoveryIssue && <p className="chat-connection-note" role="status"><Icon name="info" size={17} />Restaurant search couldn’t connect. <a href="#/settings">Connection details</a></p>}{chatUsedGoogle && <p className="chat-connection-note" role="status">Restaurant locations from Google Maps.</p>}<ChatPanel messages={messages} onSend={send} busy={busy || !config} onLocate={locate} searchContext={{ ...location, radiusKm, provider }} isFavorite={isFavorite} onToggleFavorite={toggleFavorite} /></div></section>}

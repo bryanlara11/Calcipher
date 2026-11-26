@@ -316,3 +316,18 @@ describe("missing macronutrients", () => {
     expect(screen.getByText("321")).toBeTruthy(); // calories still shown
   });
 });
+
+describe("List view without the map", () => {
+  it("searches the pin's area when List is chosen before the map reports its view", async () => {
+    window.history.replaceState(null, "", "/#/nearby");
+    render(<App />);
+    // The test map stub never reports a viewport on its own, like a map hidden behind List view.
+    await userEvent.click(await screen.findByRole("button", { name: "List", exact: true }));
+    await screen.findByText("2 catalog locations nearby");
+    expect(screen.getByText("Alpha Synthetic Branch")).toBeTruthy();
+    const [request] = fetch.mock.calls.filter(([url]) => url.includes("map-items"));
+    const body = JSON.parse(request[1].body);
+    expect(body).toMatchObject({ lat: 14.5785, lng: 120.985, radius_km: 1 });
+    expect(body.viewport).toHaveLength(4); // a box around the pin's radius
+  });
+});
