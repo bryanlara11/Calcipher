@@ -95,6 +95,9 @@ class SourceEvidence(BaseModel):
     collected_at: date | None = None
     secondary_source_url: str | None = None
     nutrition_source_url: str | None = None
+    # The menu's own note for this item ("With Rice and Drink", "Ala carte serving"), shown with it.
+    # Reviewer remarks stay in provenance "notes" and are not shown.
+    menu_note: str | None = None
 
 
 class RetrievedItem(SourceEvidence):

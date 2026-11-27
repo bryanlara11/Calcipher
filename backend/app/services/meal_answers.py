@@ -123,7 +123,8 @@ def menu_answer(items, total, constraints, ranking=None, *, missing_count=0, bra
         lines = [f"{best} {label}{where}{what}{within}:"]
         for n, item in enumerate(items[:RANKED_LINES], 1):
             lines.append(f"{n}. {item.food_item} — {item.brand_name}: {_item_facts(item, field)}"
-                         + (f" · {item.serving_size}" if item.serving_size else ""))
+                         + (f" · {item.serving_size}" if item.serving_size else "")
+                         + (f" · {item.menu_note}" if item.menu_note else ""))
         top = _rank_value(items[0], field)
         ties = sum(1 for item in items if _rank_value(item, field) == top)
         if ties > 1:

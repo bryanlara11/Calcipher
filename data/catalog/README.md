@@ -7,6 +7,12 @@
 21 entries repeated another intake entry and 27 were already in the published catalogs.
 Submitted menus and serving notes are retained with each new record. All are pending review.
 
+Each record's `menu_note` is the intake's "Optional notes" column ("With Rice and Drink",
+"Ala carte serving") and is shown with the item on every menu card and in Chat. It is left
+empty when the note only repeats the serving or name ("12oz", "Kasim", or "500mL / 1L" on the
+500mL row). `notes` stays for reviewer remarks, which are not shown. Add `menu_note` to new
+manual records the same way.
+
 For the eight calorie ranges and two fractional values, `calorie_bounds` stores the
 exact lower and upper values (equal for a single value). The existing integer calorie
 index stores the ceiling of the upper value for whole-kcal filters. Menu and meal-plan

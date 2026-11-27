@@ -9,7 +9,7 @@ import MealSearch, { buildMealQuery } from "../src/components/MealSearch.jsx";
 import ChatPanel, { MealResults, NutritionPanel } from "../src/components/ChatPanel.jsx";
 import { changeSystemTheme } from "./setup.js";
 import { branchKey, mergeListings } from "../src/components/mapListings.js";
-import { BranchPopup } from "../src/components/MapPopup.jsx";
+import { BranchPopup, MenuRecords } from "../src/components/MapPopup.jsx";
 import GoalBadge, { matchesNutritionGoals } from "../src/components/GoalBadge.jsx";
 import { FAVORITES_KEY } from "../src/favorites.js";
 import { PLAN_KEY, nutritionTotals } from "../src/mealPlan.js";
@@ -649,4 +649,12 @@ describe("catalog-wide chat answers", () => {
     await userEvent.click(screen.getByText("KFC", { selector: "summary strong" }));
     expect(screen.getByText("Zinger")).toBeTruthy();
   });
+});
+
+it("shows a menu item's own note under its serving and leaves it out when there is none", () => {
+  render(<MenuRecords items={[{ ...sample, item_id: "n1", food_item: "Fried Chicken Meal", serving_size: "1 serving", menu_note: "With Rice and Drink" },
+    { ...sample, item_id: "n2", food_item: "Plain item", serving_size: "1 serving", menu_note: null }]} />);
+  const [withNote, withoutNote] = screen.getAllByRole("listitem");
+  expect(within(withNote).getByText("With Rice and Drink").className).toBe("menu-note");
+  expect(withoutNote.querySelector(".menu-note")).toBeNull();
 });

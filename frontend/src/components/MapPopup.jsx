@@ -44,6 +44,7 @@ export function MenuRecords({ items, goals, ranked = false, label = "Menu nutrit
         <div className="menu-record-status"><span className="review-pill">{item.is_verified ? "Checked against source" : "Pending review"}</span></div>
         <GoalBadge item={item} goals={goals} />
         <p className="menu-serving">{item.serving_size || "Serving size unavailable"}</p>
+        {item.menu_note && <p className="menu-note">{item.menu_note}</p>}
         {knownMacros(item).length > 0 && <dl className="menu-macros">{knownMacros(item).map(([label, value]) =>
           <div key={label}><dt>{label}</dt><dd className="num">{formatGrams(value)}</dd></div>)}
         </dl>}

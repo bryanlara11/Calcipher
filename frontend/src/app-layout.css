@@ -6,6 +6,8 @@
 .search-results .catalog-brand-browser { margin: 0; padding: 0; border-top: 0; }
 .chat-menu-matches .menu-records { max-height: none; overflow: visible; padding: 0; display: grid; gap: 12px; }
 .chat-menu-matches .catalog-brand-browser { margin: 0; }
+/* The menu's own note ("With Rice and Drink"), right under the serving it describes. */
+.menu-note { margin: 2px 0 0; font-size: var(--text-small); line-height: 1.5; color: rgb(var(--ink) / 0.75); }
 .menu-record-rank { margin-right: 6px; color: rgb(var(--ink) / 0.6); }
 .menu-record-brand { display: block; margin-top: 2px; font-size: var(--text-small); font-weight: 400; color: rgb(var(--ink) / 0.7); }
 @media (max-width: 760px) {

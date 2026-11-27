@@ -52,7 +52,7 @@ export function useMealPlan(notify) {
       notify?.(`${item.food_item} is already in your meal plan for ${slot}.`);
       return true;
     }
-    const safe = Object.fromEntries(["item_id", "food_item", "brand_name", "calories", "calories_min", "protein_g", "carbs_g", "fat_g", "serving_size", "is_verified", "source_post_url", "nutrition_source_url", "source_images"].map(key => [key, item[key]]));
+    const safe = Object.fromEntries(["item_id", "food_item", "brand_name", "calories", "calories_min", "protein_g", "carbs_g", "fat_g", "serving_size", "menu_note", "is_verified", "source_post_url", "nutrition_source_url", "source_images"].map(key => [key, item[key]]));
     setEntries(current => current.some(matches) ? current
       : [...current, { id: globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}`, day, slot, item: safe }]);
     notify?.(`Added ${item.food_item} to your meal plan for ${slot}.`);

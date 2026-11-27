@@ -82,6 +82,35 @@ def test_preparation_never_approves_automatically_and_preserves_unknowns(tmp_pat
 
 
 @pytest.mark.db
+async def test_menu_notes_reach_menus_search_and_chat_but_reviewer_notes_do_not(tmp_path, db_session, monkeypatch, pg_url):
+    _use_test_db(monkeypatch, pg_url)
+    source, review, _ = files(tmp_path, [
+        candidate(food_item="Pork Bowl", notes="With Rice and Drink", menu_note="With Rice and Drink"),
+        candidate(record_id="TEST-002", food_item="Plain Bowl", notes="Reviewer remark: serving basis unchecked."),
+    ])
+    prepare_review(source, review)
+    assert (await load_reviewed(review))["written"] == 2
+    menu = {item.food_item: item.menu_note for item in await brand_items(db_session, "synthetic chain", include_pending=True)}
+    assert menu == {"Pork Bowl": "With Rice and Drink", "Plain Bowl": None}
+    found = await search_catalog(db_session, SearchConstraints(semantic_query="rice"))
+    assert [(item.food_item, item.menu_note) for item in found] == [("Pork Bowl", "With Rice and Drink")]
+    from tests.test_hybrid_rag import make_service
+    reply = await make_service().chat(db_session, message="most calories", lat=UPM_LAT, lng=UPM_LNG)
+    assert reply.menu_matches[0].menu_note in (None, "With Rice and Drink")
+    assert "· With Rice and Drink" in reply.answer and "Reviewer remark" not in reply.answer
+
+
+def test_committed_manual_intake_keeps_each_menu_note():
+    records = json.loads((Path(__file__).resolve().parents[2] / "data/catalog/manual-intake.pending.json").read_text(encoding="utf-8"))
+    by_item = {(r["brand_name"], r["food_item"], r["serving_size"]): r["menu_note"] for r in records}
+    assert all("menu_note" in r for r in records)
+    assert by_item[("Andok's", "Fried Chicken Meal", "1 serving")] == "With Rice and Drink"
+    assert by_item[("Andok's", "Beef Tapa", "1 serving")] == "With Coffee or Hot Choco, with rice and egg"
+    assert by_item[("Army Navy", "Classic Libertea Iced Tea", "500mL")] is None  # the serving already says 500mL
+    assert sum(1 for r in records if r["menu_note"]) == 264
+
+
+@pytest.mark.db
 async def test_source_calorie_bounds_survive_menus_and_filters(tmp_path, db_session, monkeypatch, pg_url):
     _use_test_db(monkeypatch, pg_url)
     source, review, _ = files(tmp_path, [

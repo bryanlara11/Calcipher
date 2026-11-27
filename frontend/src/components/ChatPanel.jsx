@@ -24,6 +24,7 @@ export function NutritionPanel({ item, index, onLocate, preview = false, goals, 
     <SourcePhoto item={item} />
     <div className="nutrition-heading flex items-start justify-between gap-3"><div><p className="eyebrow mb-2">{item.brand_name}</p><h2>{item.food_item}</h2></div>{preview ? <span className="text-sm text-slate-mute">Pending review</span> : <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-mango text-xs font-medium text-white" aria-label={`Map pin ${index}`}>{index}</span>}</div>
     <p className="mt-2 text-xs text-slate-mute">{item.serving_size || "Serving size unavailable"}</p>
+    {item.menu_note && <p className="menu-note">{item.menu_note}</p>}
     <GoalBadge item={item} goals={goals} />
     {item.source_classification && <p className="mt-1 text-sm text-slate-mute">{SOURCE_LABELS[item.source_classification]}</p>}
     <div className="kcal-row"><strong className="num">{formatCalories(item)} <span>kcal</span></strong><span>Calories</span></div>

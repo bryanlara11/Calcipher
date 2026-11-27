@@ -89,7 +89,8 @@ def prepare_review(candidates_path: Path, output: Path, receipt_path: Path | Non
         record_id = candidate["record_id"]
         metadata = {key: candidate.get(key) for key in (
             "record_id", "source_classification", "collected_at", "permission_reference",
-            "secondary_source_url", "field_sources", "snapshot_sha256", "notes", "source_account", "brand_origin", "nutrition_source_url")}
+            "secondary_source_url", "field_sources", "snapshot_sha256", "notes", "menu_note", "source_account",
+            "brand_origin", "nutrition_source_url")}
         metadata["collection_method"] = "authorized_source_transcription"
         if record_id in approved:
             metadata["approval"] = {

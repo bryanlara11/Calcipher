@@ -225,7 +225,8 @@ def _source_evidence(provenance: dict | None) -> dict[str, Any]:
             "calories_min": bounds[0] if bounds and bounds[0] != bounds[1] else None,
             "collected_at": metadata.get("collected_at"),
             "secondary_source_url": metadata.get("secondary_source_url"),
-            "nutrition_source_url": metadata.get("nutrition_source_url")}
+            "nutrition_source_url": metadata.get("nutrition_source_url"),
+            "menu_note": (metadata.get("menu_note") or "").strip()[:200] or None}
 
 
 def _f(value: Any) -> float | None:
